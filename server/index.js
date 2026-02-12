@@ -33,10 +33,12 @@ app.use(helmet({
       formAction: ["'self'"],
     },
   },
-  crossOriginEmbedderPolicy: true,
+  crossOriginEmbedderPolicy: false, // require-corp blocks same-origin static assets without CORP headers
   crossOriginOpenerPolicy: { policy: 'same-origin' },
   crossOriginResourcePolicy: { policy: 'same-origin' },
   referrerPolicy: { policy: 'no-referrer' },
+  // Only enable HSTS in production (breaks http://localhost in dev)
+  hsts: config.IS_PRODUCTION ? { maxAge: 31536000, includeSubDomains: true } : false,
 }));
 
 app.use(express.json({ limit: '64kb' }));
@@ -185,7 +187,8 @@ function shutdown(signal) {
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
 
-server.listen(config.PORT, () => {
-  logger.info({ port: config.PORT }, 'Signal-Web server running');
-  audit('server_started', { details: `Port ${config.PORT}` });
+const HOST = process.env.HOST || '0.0.0.0';
+server.listen(config.PORT, HOST, () => {
+  logger.info({ port: config.PORT, host: HOST }, 'Signal-Web server running');
+  audit('server_started', { details: `${HOST}:${config.PORT}` });
 });

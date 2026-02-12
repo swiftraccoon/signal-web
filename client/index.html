@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Signal Web</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Auth View -->
+    <div id="auth-view" class="view">
+      <div class="auth-container">
+        <h1 class="auth-title">Signal Web</h1>
+        <p class="auth-subtitle">End-to-end encrypted messaging</p>
+        <form id="auth-form">
+          <input type="text" id="auth-username" placeholder="Username" autocomplete="username" required>
+          <input type="password" id="auth-password" placeholder="Password" autocomplete="current-password" required>
+          <button type="submit" id="auth-submit" class="btn-primary">Log In</button>
+        </form>
+        <p class="auth-toggle">
+          Don't have an account? <a href="#" id="auth-switch">Register</a>
+        </p>
+      </div>
+    </div>
+
+    <!-- Chat View -->
+    <div id="chat-view" class="view hidden">
+      <aside id="sidebar">
+        <div class="sidebar-header">
+          <h2 id="current-user"></h2>
+          <div class="sidebar-actions">
+            <button id="settings-btn" class="btn-icon" title="Settings">&#x2699;</button>
+            <button id="logout-btn" class="btn-icon" title="Log out">&#x2716;</button>
+          </div>
+        </div>
+        <div class="search-container">
+          <input type="text" id="user-search" placeholder="Search users...">
+          <div id="search-results" class="hidden"></div>
+        </div>
+        <div id="contacts-list"></div>
+      </aside>
+      <main id="chat-area">
+        <div id="chat-placeholder">
+          <p>Select a conversation to start messaging</p>
+        </div>
+        <div id="chat-active" class="hidden">
+          <div class="chat-header">
+            <button id="chat-back-btn" class="btn-icon mobile-only" title="Back">&#x2190;</button>
+            <div class="chat-header-info">
+              <h3 id="chat-recipient"></h3>
+              <span id="chat-status" class="chat-status"></span>
+            </div>
+            <span id="typing-indicator" class="hidden">typing...</span>
+            <div class="chat-header-actions">
+              <button id="disappearing-btn" class="btn-icon" title="Disappearing messages">&#x23F1;</button>
+              <button id="safety-number-btn" class="btn-icon" title="Safety number">&#x1F512;</button>
+            </div>
+          </div>
+          <div id="disappearing-menu" class="hidden">
+            <div class="disappearing-option" data-timer="0">Off</div>
+            <div class="disappearing-option" data-timer="30">30 seconds</div>
+            <div class="disappearing-option" data-timer="300">5 minutes</div>
+            <div class="disappearing-option" data-timer="3600">1 hour</div>
+            <div class="disappearing-option" data-timer="86400">24 hours</div>
+            <div class="disappearing-option" data-timer="604800">7 days</div>
+          </div>
+          <div id="messages-container"></div>
+          <div id="disappearing-banner" class="hidden"></div>
+          <form id="message-form">
+            <input type="text" id="message-input" placeholder="Type a message..." autocomplete="off">
+            <button type="submit" class="btn-primary">Send</button>
+          </form>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Settings Modal -->
+  <div id="settings-modal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Settings</h3>
+        <button class="modal-close btn-icon">&#x2716;</button>
+      </div>
+      <div class="modal-body">
+        <div class="settings-section">
+          <h4>Change Password</h4>
+          <form id="change-password-form">
+            <input type="password" id="current-password" placeholder="Current password" required>
+            <input type="password" id="new-password" placeholder="New password (12+ chars)" required>
+            <input type="password" id="confirm-password" placeholder="Confirm new password" required>
+            <button type="submit" class="btn-primary">Change Password</button>
+          </form>
+        </div>
+        <div class="settings-section">
+          <h4>Notifications</h4>
+          <label class="toggle-label">
+            <input type="checkbox" id="notifications-toggle">
+            <span>Enable desktop notifications</span>
+          </label>
+        </div>
+        <div class="settings-section danger-section">
+          <h4>Danger Zone</h4>
+          <p class="settings-warning">Permanently delete your account and all data. This cannot be undone.</p>
+          <button id="delete-account-btn" class="btn-danger">Delete Account</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Safety Number Modal -->
+  <div id="safety-modal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Safety Number</h3>
+        <button class="modal-close btn-icon">&#x2716;</button>
+      </div>
+      <div class="modal-body">
+        <p class="safety-instructions">Compare these numbers with your contact to verify end-to-end encryption. If they match, your conversation is secure.</p>
+        <div id="safety-fingerprint" class="safety-fingerprint"></div>
+        <div class="safety-users">
+          <span id="safety-you"></span>
+          <span class="safety-divider">&#x2194;</span>
+          <span id="safety-them"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Delete Account Confirmation Modal -->
+  <div id="delete-modal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content modal-small">
+      <div class="modal-header">
+        <h3>Delete Account</h3>
+        <button class="modal-close btn-icon">&#x2716;</button>
+      </div>
+      <div class="modal-body">
+        <p>Enter your password to permanently delete your account:</p>
+        <form id="delete-account-form">
+          <input type="password" id="delete-password" placeholder="Password" required>
+          <div class="modal-actions">
+            <button type="button" class="btn-secondary modal-cancel">Cancel</button>
+            <button type="submit" class="btn-danger">Delete Forever</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div id="notifications"></div>
+  <script src="/dist/bundle.js"></script>
+</body>
+</html>

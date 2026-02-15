@@ -4,6 +4,8 @@ const { WS_MSG_TYPE } = require('../../shared/constants');
 const logger = require('../logger');
 const { incr } = require('../metrics');
 
+const MAX_MESSAGE_BODY_SIZE = 50 * 1024; // 50KB explicit body limit
+
 function handleMessage(ws, user, data) {
   let msg;
   try {
@@ -35,6 +37,9 @@ function handleChatMessage(ws, sender, msg) {
   if (!msg.message || !msg.message.body || typeof msg.message.body !== 'string') {
     return sendError(ws, 'Invalid message format');
   }
+  if (msg.message.body.length > MAX_MESSAGE_BODY_SIZE) {
+    return sendError(ws, 'Message too large');
+  }
   // Validate Signal message type (1 = Whisper, 3 = PreKey)
   if (msg.message.type !== 1 && msg.message.type !== 3) {
     return sendError(ws, 'Invalid message type');
@@ -43,6 +48,11 @@ function handleChatMessage(ws, sender, msg) {
   const recipient = stmt.getUserByUsername.get(msg.to);
   if (!recipient) {
     return sendError(ws, 'Recipient not found');
+  }
+
+  // Prevent self-messaging
+  if (recipient.id === sender.id) {
+    return sendError(ws, 'Cannot send messages to yourself');
   }
 
   const timestamp = new Date().toISOString();
@@ -74,21 +84,18 @@ function handleChatMessage(ws, sender, msg) {
 function handleAck(user, msg) {
   // Client acknowledges receipt of a message - now we can mark it delivered
   if (!msg.dbId || typeof msg.dbId !== 'number') return;
-  // Ownership check: only the recipient can ACK their own messages
-  const result = stmt.markDelivered.run(msg.dbId, user.id);
-  if (result.changes === 0) return; // Not their message or already delivered
+  // Atomically mark delivered and get actual sender_id from DB (prevents spoofing)
+  const result = stmt.markDeliveredAndGetSender.get(msg.dbId, user.id);
+  if (!result) return; // Not their message, already delivered, or not found
   incr('messagesDelivered');
 
-  // Notify the sender that the message was delivered
-  if (msg.from) {
-    const sender = stmt.getUserByUsername.get(msg.from);
-    if (sender && isOnline(sender.id)) {
-      const senderWs = getConnection(sender.id);
-      send(senderWs, {
-        type: WS_MSG_TYPE.DELIVERED,
-        id: msg.originalId, // the client-side message id
-      });
-    }
+  // Notify the actual sender (from DB, not client-supplied msg.from)
+  if (isOnline(result.sender_id)) {
+    const senderWs = getConnection(result.sender_id);
+    send(senderWs, {
+      type: WS_MSG_TYPE.DELIVERED,
+      id: msg.originalId, // the client-side message id
+    });
   }
 }
 
@@ -97,6 +104,9 @@ function handleTyping(sender, msg) {
 
   const recipient = stmt.getUserByUsername.get(msg.to);
   if (!recipient || !isOnline(recipient.id)) return;
+
+  // Only relay typing to users with prior conversation (prevents presence leak to strangers)
+  if (!stmt.hasConversation.get(sender.id, recipient.id, recipient.id, sender.id)) return;
 
   const recipientWs = getConnection(recipient.id);
   send(recipientWs, {
@@ -132,6 +142,9 @@ function handleDisappearingTimer(sender, msg) {
 
   const recipient = stmt.getUserByUsername.get(msg.to);
   if (!recipient || !isOnline(recipient.id)) return;
+
+  // Only relay timer changes to users with prior conversation
+  if (!stmt.hasConversation.get(sender.id, recipient.id, recipient.id, sender.id)) return;
 
   const recipientWs = getConnection(recipient.id);
   send(recipientWs, {

@@ -1,7 +1,7 @@
 const { WebSocketServer } = require('ws');
 const url = require('url');
 const config = require('../config');
-const { addConnection, removeConnection, getConnection, isOnline, getAllOnlineUserIds } = require('./connections');
+const { addConnection, removeConnection, getConnection, isOnline } = require('./connections');
 const { handleMessage } = require('./handler');
 const { MAX_WS_MESSAGE_SIZE, WS_MSG_TYPE } = require('../../shared/constants');
 const logger = require('../logger');
@@ -85,9 +85,10 @@ function setupWebSocket(server) {
     }
     const user = { id: ticketData.userId, username: ticketData.username };
 
-    // Verify user still exists in database
+    // Verify user still exists in database AND userId matches (prevents stale ticket
+    // from authenticating as wrong user if account was deleted and re-created)
     const dbUser = stmt.getUserByUsername.get(user.username);
-    if (!dbUser) {
+    if (!dbUser || dbUser.id !== user.id) {
       ws.close(4001, 'User not found');
       return;
     }

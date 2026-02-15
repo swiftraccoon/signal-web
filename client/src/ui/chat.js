@@ -11,6 +11,7 @@ let disappearingTimers = {}; // username -> timer seconds (0 = off)
 let disappearIntervals = {}; // username -> interval id
 let renderScheduled = false; // rAF debounce flag
 let messageIdLookup = new Map(); // msgId -> username for O(1) status lookups
+const MAX_ID_LOOKUP_SIZE = 2000; // prevent unbounded growth
 
 // URL regex - matches http/https URLs
 const URL_REGEX = /https?:\/\/[^\s<>"')\]]+/g;
@@ -363,7 +364,14 @@ function addMessage(username, msg) {
   messageHistory[username].push(msg);
 
   // Track in lookup map for O(1) status updates
-  if (msg.id) messageIdLookup.set(msg.id, username);
+  if (msg.id) {
+    messageIdLookup.set(msg.id, username);
+    // Evict oldest entries to prevent unbounded memory growth
+    if (messageIdLookup.size > MAX_ID_LOOKUP_SIZE) {
+      const first = messageIdLookup.keys().next().value;
+      messageIdLookup.delete(first);
+    }
+  }
 
   // Persist to IndexedDB (keep last 500 messages per contact)
   const history = messageHistory[username].slice(-500);

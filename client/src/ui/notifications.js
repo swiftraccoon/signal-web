@@ -44,11 +44,17 @@ export function showDesktopNotification(from, text) {
   // Don't show if the page is visible and focused
   if (document.visibilityState === 'visible' && document.hasFocus()) return;
 
-  // Don't expose message content in desktop notifications for privacy
+  // Don't expose message content or contact identity in desktop notifications
+  // Use a simple hash of username for the tag (so same-sender notifications
+  // replace each other without leaking the raw username to other apps)
+  let tagHash = 0;
+  for (let i = 0; i < from.length; i++) {
+    tagHash = ((tagHash << 5) - tagHash + from.charCodeAt(i)) | 0;
+  }
   const notification = new Notification('Signal Web', {
     body: 'New message',
     icon: undefined, // no custom icon
-    tag: `signal-web-${from}`, // replace existing notification from same user
+    tag: `sw-${tagHash.toString(36)}`, // obfuscated tag for same-sender dedup
     requireInteraction: false,
   });
 

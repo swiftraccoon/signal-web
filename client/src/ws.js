@@ -8,23 +8,24 @@ const listeners = new Map();
 
 // Offline message queue - messages sent while disconnected
 const messageQueue = [];
+const MAX_QUEUE_SIZE = 100;
 
 async function connect() {
   const token = getToken();
   if (!token) return;
 
-  // Get a short-lived one-time ticket for WS auth (avoids JWT in URL)
-  let ticketParam;
+  // Get a short-lived one-time ticket for WS auth (never send JWT in URL)
+  let ticket;
   try {
-    const { ticket } = await api.getWsTicket();
-    ticketParam = `ticket=${ticket}`;
+    const resp = await api.getWsTicket();
+    ticket = resp.ticket;
   } catch {
-    // Fallback to token if ticket endpoint unavailable
-    ticketParam = `token=${token}`;
+    console.error('Failed to obtain WS ticket');
+    return; // Do NOT fall back to sending JWT in URL (leaks to proxy logs, history)
   }
 
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  ws = new WebSocket(`${protocol}//${location.host}?${ticketParam}`);
+  ws = new WebSocket(`${protocol}//${location.host}?ticket=${ticket}`);
 
   ws.onopen = () => {
     clearTimeout(reconnectTimer);
@@ -83,7 +84,7 @@ function send(data) {
     ws.send(JSON.stringify(data));
   } else {
     // Queue for sending when reconnected (except typing indicators)
-    if (data.type !== 'typing') {
+    if (data.type !== 'typing' && messageQueue.length < MAX_QUEUE_SIZE) {
       messageQueue.push(data);
     }
   }

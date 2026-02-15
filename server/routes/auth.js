@@ -54,7 +54,7 @@ function signToken(payload) {
 }
 
 function getClientIp(req) {
-  return req.ip || req.connection.remoteAddress;
+  return req.ip || req.socket.remoteAddress;
 }
 
 router.post('/register', authLimiter, validateRegister, async (req, res) => {
@@ -100,7 +100,7 @@ router.post('/login', authLimiter, validateLogin, async (req, res) => {
         incr('authFailure');
         audit('login_locked', { userId: user.id, username, ip });
         return res.status(429).json({
-          error: `Account locked. Try again after ${lockExpiry.toLocaleTimeString()}`,
+          error: 'Account temporarily locked due to too many failed attempts. Try again later.',
         });
       }
       // Lock has expired, reset

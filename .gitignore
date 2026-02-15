@@ -4,3 +4,4 @@ client/dist/
 *.db-wal
 *.db-shm
 .env
+CLAUDE.md

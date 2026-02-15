@@ -28,12 +28,4 @@ function isOnline(userId) {
   return ws && ws.readyState === 1; // WebSocket.OPEN
 }
 
-function getAllOnlineUserIds() {
-  const ids = [];
-  for (const [userId, ws] of connections.entries()) {
-    if (ws.readyState === 1) ids.push(userId);
-  }
-  return ids;
-}
-
-module.exports = { addConnection, removeConnection, getConnection, isOnline, getAllOnlineUserIds };
+module.exports = { addConnection, removeConnection, getConnection, isOnline };

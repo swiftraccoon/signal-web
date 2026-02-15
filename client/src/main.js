@@ -78,6 +78,7 @@ async function enterChat(user, isNewRegistration) {
     const pending = await api.getPendingMessages();
     for (const msg of pending) {
       addContact({ id: msg.fromId, username: msg.from });
+      // Pass dbId through so handleIncomingMessage can ACK via WebSocket
       await handleIncomingMessage(msg);
       if (getActiveContact() !== msg.from) {
         incrementUnread(msg.from);

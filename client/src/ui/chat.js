@@ -33,7 +33,8 @@ export function initChat() {
     try {
       const encrypted = await encryptMessage(currentChat, contact.id, text);
 
-      const msgId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      const rnd = crypto.getRandomValues(new Uint32Array(1))[0].toString(36);
+      const msgId = Date.now().toString(36) + rnd;
 
       wsSend({
         type: WS_MSG_TYPE.MESSAGE,
@@ -57,7 +58,9 @@ export function initChat() {
       }
 
       addMessage(currentChat, msg);
-      updateLastMessage(currentChat, text, msg.time);
+      // Don't persist plaintext preview when disappearing messages are enabled
+      const preview = (disappearingTimers[currentChat] > 0) ? '' : text;
+      updateLastMessage(currentChat, preview, msg.time);
     } catch (err) {
       console.error('Encrypt/send error:', err);
       showToast('Failed to send message: ' + err.message, 'error');
@@ -174,7 +177,9 @@ export async function handleIncomingMessage(data) {
     }
 
     addMessage(data.from, msg);
-    updateLastMessage(data.from, plaintext, msg.time);
+    // Don't persist plaintext preview when disappearing messages are enabled
+    const preview = (disappearingTimers[data.from] > 0) ? '' : plaintext;
+    updateLastMessage(data.from, preview, msg.time);
 
     // ACK receipt to server so it marks the message as delivered
     if (data.dbId) {
@@ -342,7 +347,7 @@ function sendReadReceipts(username) {
   }
 }
 
-function addSystemMessage(username, text) {
+export function addSystemMessage(username, text) {
   if (!messageHistory[username]) messageHistory[username] = [];
   messageHistory[username].push({ system: true, text, time: new Date().toISOString() });
 
@@ -567,6 +572,13 @@ function formatDateHeader(isoString) {
 async function showSafetyNumber(username) {
   const { getStore } = await import('../signal/client.js');
   const { ab2b64 } = await import('../signal/store.js');
+  const { getCurrentUser } = await import('../api.js');
+
+  const user = getCurrentUser();
+  if (!user) {
+    showToast('Not logged in', 'error');
+    return;
+  }
 
   const store = getStore();
   const myIdentity = await store.getIdentityKeyPair();
@@ -619,7 +631,6 @@ async function showSafetyNumber(username) {
     else fingerprint += ' ';
   }
 
-  const user = JSON.parse(localStorage.getItem('user'));
   document.getElementById('safety-fingerprint').textContent = fingerprint.trim();
   document.getElementById('safety-you').textContent = user.username;
   document.getElementById('safety-them').textContent = username;

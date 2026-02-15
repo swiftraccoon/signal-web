@@ -56,6 +56,10 @@ export function initSettings(deleteCallback) {
       showToast('Password must be at least 12 characters', 'error');
       return;
     }
+    if (!/[a-z]/.test(newPw) || !/[A-Z]/.test(newPw) || !/[0-9]/.test(newPw)) {
+      showToast('Password must include lowercase, uppercase, and a number', 'error');
+      return;
+    }
 
     try {
       await api.changePassword(currentPw, newPw);

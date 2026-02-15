@@ -35,14 +35,17 @@ const pendingWrites = new Map(); // "store:key" -> { storeName, key, value }
 let flushTimer = null;
 const FLUSH_DELAY_MS = 100;
 
+const PBKDF2_ITERATIONS = 600000; // OWASP 2023+ recommendation for SHA-256
+const LEGACY_PBKDF2_ITERATIONS = 100000; // Previous default, kept for backwards compat
+
 // Derive a storage encryption key from the user's password + random salt
-async function deriveStorageKey(password, saltBytes) {
+async function deriveStorageKey(password, saltBytes, iterations) {
   const enc = new TextEncoder();
   const keyMaterial = await crypto.subtle.importKey(
     'raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']
   );
   return crypto.subtle.deriveKey(
-    { name: 'PBKDF2', salt: saltBytes, iterations: 100000, hash: 'SHA-256' },
+    { name: 'PBKDF2', salt: saltBytes, iterations, hash: 'SHA-256' },
     keyMaterial,
     { name: 'AES-GCM', length: 256 },
     false,
@@ -50,40 +53,59 @@ async function deriveStorageKey(password, saltBytes) {
   );
 }
 
-// Get or create a random salt, stored unencrypted in CRYPTO_PARAMS
-async function getOrCreateSalt(username) {
-  const db = await open();
-  const saltKey = `salt:${username}`;
-
-  // Read from unencrypted store
-  const existing = await new Promise((resolve, reject) => {
+// Read a value from the unencrypted CRYPTO_PARAMS store
+async function readCryptoParam(db, key) {
+  return new Promise((resolve, reject) => {
     const tx = db.transaction(STORES.CRYPTO_PARAMS, 'readonly');
-    const req = tx.objectStore(STORES.CRYPTO_PARAMS).get(saltKey);
+    const req = tx.objectStore(STORES.CRYPTO_PARAMS).get(key);
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
+}
 
-  if (existing) {
-    return Uint8Array.from(atob(existing), c => c.charCodeAt(0));
-  }
-
-  // Generate new 32-byte random salt
-  const salt = crypto.getRandomValues(new Uint8Array(32));
-  const b64Salt = uint8ToBase64(salt);
-
-  await new Promise((resolve, reject) => {
+// Write a value to the unencrypted CRYPTO_PARAMS store
+async function writeCryptoParam(db, key, value) {
+  return new Promise((resolve, reject) => {
     const tx = db.transaction(STORES.CRYPTO_PARAMS, 'readwrite');
-    tx.objectStore(STORES.CRYPTO_PARAMS).put(b64Salt, saltKey);
+    tx.objectStore(STORES.CRYPTO_PARAMS).put(value, key);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
+}
 
-  return salt;
+// Get or create salt and iteration count (with backwards-compat for existing users)
+async function getOrCreateCryptoParams(username) {
+  const db = await open();
+  const saltKey = `salt:${username}`;
+  const iterKey = `iterations:${username}`;
+
+  const [existingSalt, existingIter] = await Promise.all([
+    readCryptoParam(db, saltKey),
+    readCryptoParam(db, iterKey),
+  ]);
+
+  if (existingSalt) {
+    const salt = Uint8Array.from(atob(existingSalt), c => c.charCodeAt(0));
+    // Existing users without a stored iteration count used the legacy default
+    const iterations = existingIter || LEGACY_PBKDF2_ITERATIONS;
+    // Persist iteration count if it wasn't stored yet (migration)
+    if (!existingIter) {
+      await writeCryptoParam(db, iterKey, iterations);
+    }
+    return { salt, iterations };
+  }
+
+  // New user: generate salt and use strong iteration count
+  const salt = crypto.getRandomValues(new Uint8Array(32));
+  const iterations = PBKDF2_ITERATIONS;
+  await writeCryptoParam(db, saltKey, uint8ToBase64(salt));
+  await writeCryptoParam(db, iterKey, iterations);
+  return { salt, iterations };
 }
 
 async function initEncryption(password, username) {
-  const salt = await getOrCreateSalt(username);
-  encryptionKey = await deriveStorageKey(password, salt);
+  const { salt, iterations } = await getOrCreateCryptoParams(username);
+  encryptionKey = await deriveStorageKey(password, salt, iterations);
 }
 
 function clearEncryptionKey() {

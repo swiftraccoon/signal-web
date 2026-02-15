@@ -1,8 +1,7 @@
 const { WebSocketServer } = require('ws');
-const jwt = require('jsonwebtoken');
 const url = require('url');
 const config = require('../config');
-const { addConnection, removeConnection, getConnection, isOnline, broadcastToAll, getAllOnlineUserIds } = require('./connections');
+const { addConnection, removeConnection, getConnection, isOnline, getAllOnlineUserIds } = require('./connections');
 const { handleMessage } = require('./handler');
 const { MAX_WS_MESSAGE_SIZE, WS_MSG_TYPE } = require('../../shared/constants');
 const logger = require('../logger');
@@ -66,52 +65,31 @@ function setupWebSocket(server) {
 
     const params = new url.URL(req.url, 'http://localhost').searchParams;
     const ticket = params.get('ticket');
-    const token = params.get('token');
 
-    let user;
-
-    // Prefer ticket-based auth (short-lived, one-time)
-    if (ticket) {
-      let consumeWsTicket;
-      try {
-        consumeWsTicket = require('../routes/auth').consumeWsTicket;
-      } catch {
-        ws.close(4001, 'Auth system unavailable');
-        return;
-      }
-      const ticketData = consumeWsTicket(ticket);
-      if (!ticketData) {
-        ws.close(4001, 'Invalid or expired ticket');
-        return;
-      }
-      user = { id: ticketData.userId, username: ticketData.username };
-    } else if (token) {
-      // Fallback to JWT (for backward compat / tests)
-      try {
-        user = jwt.verify(token, config.JWT_SECRET, {
-          algorithms: [config.JWT_ALGORITHM],
-        });
-      } catch {
-        ws.close(4001, 'Invalid token');
-        return;
-      }
-    } else {
+    if (!ticket) {
       ws.close(4001, 'Authentication required');
       return;
     }
 
-    // Check if password was changed after token was issued (session invalidation)
+    let consumeWsTicket;
+    try {
+      consumeWsTicket = require('../routes/auth').consumeWsTicket;
+    } catch {
+      ws.close(4001, 'Auth system unavailable');
+      return;
+    }
+    const ticketData = consumeWsTicket(ticket);
+    if (!ticketData) {
+      ws.close(4001, 'Invalid or expired ticket');
+      return;
+    }
+    const user = { id: ticketData.userId, username: ticketData.username };
+
+    // Verify user still exists in database
     const dbUser = stmt.getUserByUsername.get(user.username);
     if (!dbUser) {
       ws.close(4001, 'User not found');
       return;
-    }
-    if (dbUser.password_changed_at && user.iat) {
-      const changedAt = Math.floor(new Date(dbUser.password_changed_at + 'Z').getTime() / 1000);
-      if (user.iat < changedAt) {
-        ws.close(4001, 'Token invalidated by password change');
-        return;
-      }
     }
 
     ws._isAlive = true;
@@ -129,11 +107,13 @@ function setupWebSocket(server) {
     // Broadcast presence only to users who have exchanged messages with this user
     broadcastPresence(user.id, user.username, true);
 
-    // Send this user the list of currently online users (filtered to contacts)
-    const onlineIds = getAllOnlineUserIds();
+    // Send this user only their contacts' online status (not all users)
+    const { getConversationPartners } = require('../db');
+    const partnerIds = getConversationPartners(user.id);
+    const onlinePartnerIds = partnerIds.filter(id => isOnline(id));
     ws.send(JSON.stringify({
       type: WS_MSG_TYPE.PRESENCE,
-      onlineUserIds: onlineIds,
+      onlineUserIds: onlinePartnerIds,
     }));
 
     // Per-userId rate limiting (persists across reconnections)
@@ -155,6 +135,7 @@ function setupWebSocket(server) {
 
     ws.on('close', () => {
       removeConnection(user.id, ws);
+      userRateLimits.delete(user.id);
       logger.debug({ userId: user.id, username: user.username }, 'WS disconnected');
       broadcastPresence(user.id, user.username, false);
     });

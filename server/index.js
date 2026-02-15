@@ -13,6 +13,11 @@ const { incr, trackRequestDuration, getSnapshot } = require('./metrics');
 
 const app = express();
 
+// Trust proxy in production (for correct client IP behind load balancers)
+if (config.IS_PRODUCTION) {
+  app.set('trust proxy', 1);
+}
+
 // Compression for all HTTP responses
 app.use(compression());
 
@@ -90,16 +95,13 @@ app.get('/health', (req, res) => {
     dbOk = true;
   } catch {}
   const status = dbOk ? 'ok' : 'degraded';
-  const body = config.IS_PRODUCTION
-    ? { status }
-    : { status, db: dbOk, uptime: Math.floor(process.uptime()) };
-  res.status(dbOk ? 200 : 503).json(body);
+  res.status(dbOk ? 200 : 503).json({ status });
 });
 
 // Metrics endpoint - protected, localhost-only in production
 app.get('/metrics', (req, res, next) => {
   if (config.IS_PRODUCTION) {
-    const ip = req.ip || req.connection.remoteAddress;
+    const ip = req.ip || req.socket.remoteAddress;
     if (ip !== '127.0.0.1' && ip !== '::1' && ip !== '::ffff:127.0.0.1') {
       return res.status(403).json({ error: 'Forbidden' });
     }

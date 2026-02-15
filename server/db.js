@@ -139,8 +139,8 @@ const stmt = {
   storeMessage: timedStmt(db.prepare('INSERT INTO messages (sender_id, recipient_id, type, body) VALUES (?, ?, ?, ?)'), 'storeMessage'),
   getPendingMessages: timedStmt(db.prepare('SELECT m.id, m.sender_id, m.type, m.body, m.timestamp, u.username as sender_username FROM messages m JOIN users u ON m.sender_id = u.id WHERE m.recipient_id = ? AND m.delivered = 0 ORDER BY m.timestamp'), 'getPendingMessages'),
   markDelivered: timedStmt(db.prepare('UPDATE messages SET delivered = 1 WHERE id = ? AND recipient_id = ?'), 'markDelivered'),
-  purgeDelivered: timedStmt(db.prepare("DELETE FROM messages WHERE delivered = 1 AND timestamp < datetime('now', '-24 hours')"), 'purgeDelivered'),
-  purgeStale: timedStmt(db.prepare("DELETE FROM messages WHERE delivered = 0 AND timestamp < datetime('now', '-30 days')"), 'purgeStale'),
+  purgeDelivered: timedStmt(db.prepare("DELETE FROM messages WHERE delivered = 1 AND timestamp < datetime('now', '-1 hour')"), 'purgeDelivered'),
+  purgeStale: timedStmt(db.prepare("DELETE FROM messages WHERE delivered = 0 AND timestamp < datetime('now', '-7 days')"), 'purgeStale'),
 
   // Audit logging
   insertAudit: timedStmt(db.prepare('INSERT INTO audit_log (event, user_id, username, ip, details) VALUES (?, ?, ?, ?, ?)'), 'insertAudit'),

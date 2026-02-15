@@ -1,4 +1,4 @@
-import { api, setToken } from '../api.js';
+import { api, setToken, setCurrentUser } from '../api.js';
 import { showToast } from './notifications.js';
 
 let isRegisterMode = false;
@@ -35,7 +35,7 @@ export function initAuth(callback) {
         : await api.login(username, password);
 
       setToken(result.token);
-      localStorage.setItem('user', JSON.stringify(result.user));
+      setCurrentUser(result.user);
       // Pass password to callback for storage encryption key derivation
       onAuthSuccess(result.user, isRegisterMode, password);
       // Clear password from DOM immediately

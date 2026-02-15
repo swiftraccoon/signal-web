@@ -84,9 +84,16 @@ function request(method, path, body, token) {
   });
 }
 
-function connectWS(token) {
+async function connectWS(token) {
+  // Get a one-time ticket for WS auth (never pass JWT in URL)
+  const ticketRes = await request('POST', '/api/auth/ws-ticket', null, token);
+  if (ticketRes.status !== 200 || !ticketRes.body.ticket) {
+    throw new Error('Failed to get WS ticket');
+  }
+  const ticket = ticketRes.body.ticket;
+
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`ws://localhost:3001?token=${token}`);
+    const ws = new WebSocket(`ws://localhost:3001?ticket=${ticket}`);
     // Wait for the initial presence message, then resolve
     let resolved = false;
     ws.on('message', (data) => {

@@ -36,13 +36,4 @@ function getAllOnlineUserIds() {
   return ids;
 }
 
-function broadcastToAll(data, excludeUserId) {
-  const json = JSON.stringify(data);
-  for (const [userId, ws] of connections.entries()) {
-    if (userId !== excludeUserId && ws.readyState === 1) {
-      ws.send(json);
-    }
-  }
-}
-
-module.exports = { addConnection, removeConnection, getConnection, isOnline, getAllOnlineUserIds, broadcastToAll };
+module.exports = { addConnection, removeConnection, getConnection, isOnline, getAllOnlineUserIds };

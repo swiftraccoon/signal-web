@@ -31,6 +31,17 @@ function deserializeKeyPair(kp) {
 
 export { ab2b64, b642ab };
 
+// Identity key change event system
+const identityKeyChangeListeners = new Set();
+
+export function onIdentityKeyChange(fn) {
+  identityKeyChangeListeners.add(fn);
+}
+
+export function offIdentityKeyChange(fn) {
+  identityKeyChangeListeners.delete(fn);
+}
+
 export class SignalProtocolStore {
   async getIdentityKeyPair() {
     const kp = await get(STORES.IDENTITY_KEY_PAIR, 'identityKey');
@@ -61,6 +72,11 @@ export class SignalProtocolStore {
     if (changed) {
       // Archive the old identity for key change detection
       await put(STORES.IDENTITY_KEYS, `${encodedAddress}:prev`, existing);
+      // Notify listeners about identity key change (MITM detection)
+      const username = encodedAddress.split('.')[0];
+      for (const fn of identityKeyChangeListeners) {
+        try { fn(username); } catch (e) { /* listener error must not break protocol */ }
+      }
     }
     await put(STORES.IDENTITY_KEYS, encodedAddress, b64);
     return changed; // returns true if key changed

@@ -1,12 +1,12 @@
-import { api, setToken, getToken } from './api.js';
+import { api, setToken, getToken, setCurrentUser } from './api.js';
 import { connect, disconnect, on } from './ws.js';
 import { initAuth, showAuth, hideAuth } from './ui/auth.js';
 import { initContacts, loadContacts, addContact, selectContact, getActiveContact, incrementUnread, setUserOnline, setUserOffline, setOnlineUsers } from './ui/contacts.js';
-import { initChat, openChat, handleIncomingMessage, showTypingIndicator, handleDelivered, handleReadReceipt, handleDisappearingTimerChange, updateChatStatus, getCurrentChat } from './ui/chat.js';
+import { initChat, openChat, handleIncomingMessage, showTypingIndicator, handleDelivered, handleReadReceipt, handleDisappearingTimerChange, updateChatStatus, getCurrentChat, addSystemMessage } from './ui/chat.js';
 import { showToast, showDesktopNotification, getNotificationsEnabled } from './ui/notifications.js';
 import { initSettings } from './ui/settings.js';
 import { getStore, resetStore } from './signal/client.js';
-import { ab2b64 } from './signal/store.js';
+import { ab2b64, onIdentityKeyChange } from './signal/store.js';
 import { generateAndStoreKeys, generateMorePreKeys, rotateSignedPreKeyIfNeeded } from './signal/keys.js';
 import { clearAll, initEncryption, clearEncryptionKey } from './storage/indexeddb.js';
 import { WS_MSG_TYPE } from '../../shared/constants.js';
@@ -58,6 +58,15 @@ async function enterChat(user, isNewRegistration) {
 
   hideAuth();
   document.getElementById('current-user').textContent = user.username;
+
+  // CRITICAL: Warn user when a contact's identity key changes (MITM detection)
+  onIdentityKeyChange((username) => {
+    addSystemMessage(username,
+      'WARNING: ' + username + '\'s safety number has changed. ' +
+      'This could mean they reinstalled the app, or someone may be ' +
+      'intercepting your messages. Verify the safety number before continuing.');
+    showToast('Security alert: ' + username + '\'s identity key changed!', 'error');
+  });
 
   await loadContacts();
 
@@ -189,7 +198,7 @@ function onContactSelected(username) {
 function logout() {
   disconnect();
   setToken(null);
-  localStorage.removeItem('user');
+  setCurrentUser(null);
   resetStore();
   clearEncryptionKey();
   clearAll();

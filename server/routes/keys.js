@@ -9,6 +9,21 @@ const router = express.Router();
 
 const MAX_PREKEYS_PER_UPLOAD = 200;
 
+// Per-target bundle fetch rate limiting (prevents pre-key exhaustion attacks)
+const bundleFetchCounts = new Map(); // "requesterId:targetId" -> { count, windowStart }
+const BUNDLE_FETCH_LIMIT = 3; // max fetches per target per window
+const BUNDLE_FETCH_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+
+// Periodic cleanup of expired rate limit entries
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, val] of bundleFetchCounts) {
+    if (now - val.windowStart > BUNDLE_FETCH_WINDOW_MS) {
+      bundleFetchCounts.delete(key);
+    }
+  }
+}, 5 * 60 * 1000);
+
 router.put('/bundle', authenticateToken, (req, res) => {
   try {
     const bundle = req.body;
@@ -55,6 +70,19 @@ router.get('/bundle/:userId', authenticateToken, (req, res) => {
 
     if (userId === req.user.id) {
       return res.status(400).json({ error: 'Cannot fetch your own bundle' });
+    }
+
+    // Rate limit bundle fetches per requester+target to prevent pre-key exhaustion
+    const rateLimitKey = `${req.user.id}:${userId}`;
+    const now = Date.now();
+    let fetchEntry = bundleFetchCounts.get(rateLimitKey);
+    if (!fetchEntry || now - fetchEntry.windowStart > BUNDLE_FETCH_WINDOW_MS) {
+      fetchEntry = { count: 0, windowStart: now };
+      bundleFetchCounts.set(rateLimitKey, fetchEntry);
+    }
+    fetchEntry.count++;
+    if (fetchEntry.count > BUNDLE_FETCH_LIMIT) {
+      return res.status(429).json({ error: 'Too many key requests for this user. Try again later.' });
     }
 
     const user = stmt.getUserById.get(userId);

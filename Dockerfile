@@ -23,8 +23,9 @@ COPY client/index.html ./client/index.html
 COPY client/css/ ./client/css/
 COPY --from=build /app/client/dist/ ./client/dist/
 
-# Create data directory for SQLite
-RUN mkdir -p /data
+# Create non-root user and data directory
+RUN addgroup -S app && adduser -S app -G app && \
+    mkdir -p /data && chown app:app /data
 
 ENV NODE_ENV=production
 ENV DB_PATH=/data/signal-web.db
@@ -35,5 +36,7 @@ EXPOSE 3000
 # Health check
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget -qO- http://localhost:3000/health || exit 1
+
+USER app
 
 CMD ["node", "server/index.js"]

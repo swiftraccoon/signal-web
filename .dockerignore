@@ -1,5 +1,6 @@
 node_modules
 .env
+.env.*
 *.db
 *.db-wal
 *.db-shm
@@ -8,3 +9,5 @@ test-*.js
 .git
 .gitignore
 .claude
+.dockerignore
+*.md

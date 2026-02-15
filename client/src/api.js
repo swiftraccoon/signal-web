@@ -1,16 +1,23 @@
-let token = localStorage.getItem('token');
+// Token is kept in memory only -- never persisted to localStorage.
+// This prevents XSS-based token theft. Users re-authenticate on page
+// reload, which also re-derives the storage encryption key.
+let token = null;
+let currentUser = null;
 
 function setToken(t) {
   token = t;
-  if (t) {
-    localStorage.setItem('token', t);
-  } else {
-    localStorage.removeItem('token');
-  }
 }
 
 function getToken() {
   return token;
+}
+
+function setCurrentUser(u) {
+  currentUser = u;
+}
+
+function getCurrentUser() {
+  return currentUser;
 }
 
 async function request(path, options = {}) {
@@ -86,4 +93,4 @@ const api = {
     request('/api/auth/ws-ticket', { method: 'POST' }),
 };
 
-export { api, setToken, getToken };
+export { api, setToken, getToken, setCurrentUser, getCurrentUser };

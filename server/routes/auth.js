@@ -20,6 +20,14 @@ const DUMMY_HASH = bcrypt.hashSync('dummy-password-for-timing', config.BCRYPT_RO
 const wsTickets = new Map(); // ticket -> { userId, username, expiresAt }
 const WS_TICKET_TTL_MS = 30000; // 30 seconds
 
+// Periodic cleanup of expired tickets (prevents memory leak)
+setInterval(() => {
+  const now = Date.now();
+  for (const [t, v] of wsTickets) {
+    if (v.expiresAt < now) wsTickets.delete(t);
+  }
+}, 60000);
+
 function createWsTicket(userId, username) {
   const ticket = crypto.randomBytes(32).toString('hex');
   wsTickets.set(ticket, {
@@ -27,13 +35,6 @@ function createWsTicket(userId, username) {
     username,
     expiresAt: Date.now() + WS_TICKET_TTL_MS,
   });
-  // Cleanup expired tickets periodically
-  if (wsTickets.size > 1000) {
-    const now = Date.now();
-    for (const [t, v] of wsTickets) {
-      if (v.expiresAt < now) wsTickets.delete(t);
-    }
-  }
   return ticket;
 }
 
@@ -187,6 +188,15 @@ router.put('/password', authenticateToken, async (req, res) => {
 
     if (newPassword.length < 12) {
       return res.status(400).json({ error: 'New password must be at least 12 characters' });
+    }
+    if (!/[a-z]/.test(newPassword)) {
+      return res.status(400).json({ error: 'Password must include a lowercase letter' });
+    }
+    if (!/[A-Z]/.test(newPassword)) {
+      return res.status(400).json({ error: 'Password must include an uppercase letter' });
+    }
+    if (!/[0-9]/.test(newPassword)) {
+      return res.status(400).json({ error: 'Password must include a number' });
     }
 
     const user = stmt.getUserByUsername.get(req.user.username);

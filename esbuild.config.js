@@ -5,7 +5,7 @@ const isWatch = process.argv.includes('--watch');
 const isDev = isWatch || process.env.NODE_ENV !== 'production';
 
 const buildOptions = {
-  entryPoints: [path.join(__dirname, 'client/src/main.js')],
+  entryPoints: [path.join(__dirname, 'client/src/main.ts')],
   bundle: true,
   outfile: path.join(__dirname, 'client/dist/bundle.js'),
   platform: 'browser',

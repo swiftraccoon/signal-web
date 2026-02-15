@@ -1,0 +1,183 @@
+import express, { Request, Response } from 'express';
+import { authenticateToken } from '../middleware/auth';
+import { stmt, getPreKeyBundle, uploadBundle, audit } from '../db';
+import { PREKEY_LOW_THRESHOLD, WS_MSG_TYPE } from '../../shared/constants';
+import { getConnection, isOnline } from '../ws/connections';
+import logger from '../logger';
+import type { DbUser, DbCount, BundleFetchEntry, PreKeyBundleUpload, PreKeyPublic } from '../../shared/types';
+
+const router = express.Router();
+
+const MAX_PREKEYS_PER_UPLOAD = 200;
+
+// Per-target bundle fetch rate limiting (prevents pre-key exhaustion attacks)
+const bundleFetchCounts = new Map<string, BundleFetchEntry>();
+const BUNDLE_FETCH_LIMIT = 3; // max fetches per target per window
+const BUNDLE_FETCH_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+
+// Periodic cleanup of expired rate limit entries
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, val] of bundleFetchCounts) {
+    if (now - val.windowStart > BUNDLE_FETCH_WINDOW_MS) {
+      bundleFetchCounts.delete(key);
+    }
+  }
+}, 5 * 60 * 1000);
+
+router.put('/bundle', authenticateToken, (req: Request, res: Response) => {
+  try {
+    const bundle = req.body as PreKeyBundleUpload;
+
+    // Validate required fields exist and have correct types
+    if (typeof bundle.registrationId !== 'number' || bundle.registrationId < 1 || bundle.registrationId > 0x3FFF) {
+      res.status(400).json({ error: 'Invalid registrationId' });
+      return;
+    }
+    if (typeof bundle.identityKey !== 'string' || bundle.identityKey.length === 0 || bundle.identityKey.length > 100) {
+      res.status(400).json({ error: 'Invalid identityKey' });
+      return;
+    }
+    if (!bundle.signedPreKey || typeof bundle.signedPreKey.keyId !== 'number'
+        || typeof bundle.signedPreKey.publicKey !== 'string' || typeof bundle.signedPreKey.signature !== 'string') {
+      res.status(400).json({ error: 'Invalid signedPreKey' });
+      return;
+    }
+    if (!Array.isArray(bundle.preKeys)) {
+      res.status(400).json({ error: 'preKeys must be an array' });
+      return;
+    }
+    if (bundle.preKeys.length > MAX_PREKEYS_PER_UPLOAD) {
+      res.status(400).json({ error: `Maximum ${MAX_PREKEYS_PER_UPLOAD} pre-keys per upload` });
+      return;
+    }
+    // Validate each preKey
+    for (const pk of bundle.preKeys) {
+      if (typeof pk.keyId !== 'number' || typeof pk.publicKey !== 'string') {
+        res.status(400).json({ error: 'Invalid preKey format' });
+        return;
+      }
+    }
+
+    uploadBundle(req.user!.id, bundle);
+    audit('bundle_uploaded', { userId: req.user!.id, username: req.user!.username, ip: req.ip, details: `${bundle.preKeys.length} pre-keys` });
+    res.json({ success: true });
+  } catch (err) {
+    logger.error({ err, userId: req.user!.id }, 'Upload bundle error');
+    res.status(500).json({ error: 'Failed to upload bundle' });
+  }
+});
+
+router.get('/bundle/:userId', authenticateToken, (req: Request, res: Response) => {
+  try {
+    const userId = parseInt(req.params['userId'] as string, 10);
+    if (isNaN(userId)) {
+      res.status(400).json({ error: 'Invalid user ID' });
+      return;
+    }
+
+    if (userId === req.user!.id) {
+      res.status(400).json({ error: 'Cannot fetch your own bundle' });
+      return;
+    }
+
+    // Rate limit bundle fetches per requester+target to prevent pre-key exhaustion
+    const now = Date.now();
+
+    // H5: Per-requester global rate limit (prevents multi-account pre-key exhaustion)
+    const requesterKey = `requester:${req.user!.id}`;
+    let requesterEntry = bundleFetchCounts.get(requesterKey);
+    if (!requesterEntry || now - requesterEntry.windowStart > BUNDLE_FETCH_WINDOW_MS) {
+      requesterEntry = { count: 0, windowStart: now };
+      bundleFetchCounts.set(requesterKey, requesterEntry);
+    }
+    requesterEntry.count++;
+    if (requesterEntry.count > 50) { // Max 50 total bundle fetches per hour
+      res.status(429).json({ error: 'Too many key requests. Try again later.' });
+      return;
+    }
+
+    // Per-target rate limit (max 3 fetches per target per hour)
+    const rateLimitKey = `${req.user!.id}:${userId}`;
+    let fetchEntry = bundleFetchCounts.get(rateLimitKey);
+    if (!fetchEntry || now - fetchEntry.windowStart > BUNDLE_FETCH_WINDOW_MS) {
+      fetchEntry = { count: 0, windowStart: now };
+      bundleFetchCounts.set(rateLimitKey, fetchEntry);
+    }
+    fetchEntry.count++;
+    if (fetchEntry.count > BUNDLE_FETCH_LIMIT) {
+      res.status(429).json({ error: 'Too many key requests for this user. Try again later.' });
+      return;
+    }
+
+    const user = stmt.getUserById.get(userId) as Pick<DbUser, 'id' | 'username'> | undefined;
+    if (!user) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+
+    const bundle = getPreKeyBundle(userId);
+    if (!bundle) {
+      res.status(404).json({ error: 'No pre-key bundle available' });
+      return;
+    }
+
+    bundle.userId = userId;
+    bundle.username = user.username;
+
+    // Warn the target user if their pre-keys are running low
+    const { count } = stmt.countOneTimePreKeys.get(userId) as DbCount;
+    if (count < PREKEY_LOW_THRESHOLD && isOnline(userId)) {
+      const ws = getConnection(userId);
+      if (ws && ws.readyState === 1) {
+        ws.send(JSON.stringify({ type: WS_MSG_TYPE.PREKEY_LOW, remaining: count }));
+      }
+    }
+
+    res.json(bundle);
+  } catch (err) {
+    logger.error({ err, userId: req.user!.id }, 'Get bundle error');
+    res.status(500).json({ error: 'Failed to fetch bundle' });
+  }
+});
+
+router.post('/replenish', authenticateToken, (req: Request, res: Response) => {
+  try {
+    const { preKeys } = req.body as { preKeys?: PreKeyPublic[] };
+    if (!Array.isArray(preKeys) || preKeys.length === 0) {
+      res.status(400).json({ error: 'preKeys array required' });
+      return;
+    }
+    if (preKeys.length > MAX_PREKEYS_PER_UPLOAD) {
+      res.status(400).json({ error: `Maximum ${MAX_PREKEYS_PER_UPLOAD} pre-keys per upload` });
+      return;
+    }
+
+    for (const pk of preKeys) {
+      if (typeof pk.keyId !== 'number' || typeof pk.publicKey !== 'string') {
+        res.status(400).json({ error: 'Invalid preKey format' });
+        return;
+      }
+      stmt.insertOneTimePreKey.run(req.user!.id, pk.keyId, pk.publicKey);
+    }
+
+    const { count } = stmt.countOneTimePreKeys.get(req.user!.id) as DbCount;
+    logger.info({ userId: req.user!.id, added: preKeys.length, total: count }, 'Pre-keys replenished');
+    res.json({ success: true, remaining: count });
+  } catch (err) {
+    logger.error({ err, userId: req.user!.id }, 'Replenish error');
+    res.status(500).json({ error: 'Failed to replenish keys' });
+  }
+});
+
+router.get('/count', authenticateToken, (req: Request, res: Response) => {
+  try {
+    const { count } = stmt.countOneTimePreKeys.get(req.user!.id) as DbCount;
+    res.json({ count });
+  } catch (err) {
+    logger.error({ err, userId: req.user!.id }, 'Key count error');
+    res.status(500).json({ error: 'Failed to get key count' });
+  }
+});
+
+export default router;

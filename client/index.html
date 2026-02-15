@@ -88,9 +88,9 @@
         <div class="settings-section">
           <h4>Change Password</h4>
           <form id="change-password-form">
-            <input type="password" id="current-password" placeholder="Current password" required>
-            <input type="password" id="new-password" placeholder="New password (12+ chars)" required>
-            <input type="password" id="confirm-password" placeholder="Confirm new password" required>
+            <input type="password" id="current-password" placeholder="Current password" autocomplete="current-password" required>
+            <input type="password" id="new-password" placeholder="New password (12+ chars)" autocomplete="new-password" required>
+            <input type="password" id="confirm-password" placeholder="Confirm new password" autocomplete="new-password" required>
             <button type="submit" class="btn-primary">Change Password</button>
           </form>
         </div>
@@ -141,7 +141,7 @@
       <div class="modal-body">
         <p>Enter your password to permanently delete your account:</p>
         <form id="delete-account-form">
-          <input type="password" id="delete-password" placeholder="Password" required>
+          <input type="password" id="delete-password" placeholder="Password" autocomplete="current-password" required>
           <div class="modal-actions">
             <button type="button" class="btn-secondary modal-cancel">Cancel</button>
             <button type="submit" class="btn-danger">Delete Forever</button>

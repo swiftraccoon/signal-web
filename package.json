@@ -4,9 +4,12 @@
   "private": true,
   "description": "E2E encrypted chat using Signal Protocol",
   "scripts": {
-    "build": "node esbuild.config.js",
-    "start": "node server/index.js",
-    "dev": "concurrently \"node server/index.js\" \"node esbuild.config.js --watch\""
+    "build:server": "tsc -p tsconfig.server.json",
+    "build:client": "node esbuild.config.js",
+    "build": "npm run build:server && npm run build:client",
+    "start": "node dist/server/index.js",
+    "dev": "concurrently \"tsc -p tsconfig.server.json --watch --preserveWatchOutput\" \"node esbuild.config.js --watch\" \"node --watch dist/server/index.js\"",
+    "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.client.json --noEmit"
   },
   "dependencies": {
     "@privacyresearch/libsignal-protocol-typescript": "^0.0.12",
@@ -23,7 +26,16 @@
     "ws": "^8.18.0"
   },
   "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/compression": "^1.8.1",
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^25.2.3",
+    "@types/ws": "^8.18.1",
     "concurrently": "^9.1.2",
-    "esbuild": "^0.27.3"
+    "esbuild": "^0.27.3",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
   }
 }

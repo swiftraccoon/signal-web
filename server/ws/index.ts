@@ -1,0 +1,188 @@
+import { WebSocketServer, WebSocket as WsWebSocket } from 'ws';
+import http from 'http';
+import config from '../config';
+import { addConnection, removeConnection, getConnection, isOnline } from './connections';
+import { handleMessage } from './handler';
+import { consumeWsTicket } from './tickets';
+import { MAX_WS_MESSAGE_SIZE, WS_MSG_TYPE } from '../../shared/constants';
+import logger from '../logger';
+import { incr } from '../metrics';
+import { stmt, getConversationPartners } from '../db';
+import type { DbUser, UserRateLimitEntry, WsUser } from '../../shared/types';
+
+// Extend WebSocket with custom properties
+interface SignalWebSocket extends WsWebSocket {
+  _isAlive: boolean;
+  _userId: number;
+}
+
+const WS_RATE_LIMIT = 20;
+const WS_RATE_WINDOW = 1000;
+const PING_INTERVAL = 30000;
+
+// C3: Per-userId rate limiting — persists across reconnections (NOT deleted on disconnect)
+const userRateLimits = new Map<number, UserRateLimitEntry>();
+
+// C3: Periodic cleanup of stale rate limit entries (replaces on-disconnect deletion)
+setInterval(() => {
+  const now = Date.now();
+  for (const [userId, limit] of userRateLimits) {
+    if (now - limit.windowStart > WS_RATE_WINDOW * 10) {
+      userRateLimits.delete(userId);
+    }
+  }
+}, WS_RATE_WINDOW * 10);
+
+function setupWebSocket(server: http.Server): WebSocketServer {
+  const wss = new WebSocketServer({
+    server,
+    maxPayload: MAX_WS_MESSAGE_SIZE,
+  });
+
+  // Ping/pong keepalive - detect stale connections
+  const pingInterval = setInterval(() => {
+    for (const client of wss.clients) {
+      const ws = client as SignalWebSocket;
+      if (ws._isAlive === false) {
+        logger.debug({ userId: ws._userId }, 'Terminating stale WS connection (no pong)');
+        ws.terminate();
+        continue;
+      }
+      ws._isAlive = false;
+      ws.ping();
+    }
+  }, PING_INTERVAL);
+
+  wss.on('close', () => {
+    clearInterval(pingInterval);
+  });
+
+  wss.on('connection', (rawWs: WsWebSocket, req: http.IncomingMessage) => {
+    const ws = rawWs as SignalWebSocket;
+
+    // C7: Origin validation via explicit allowlist (not trusting Host header)
+    const origin = req.headers.origin;
+    if (origin) {
+      if (config.ALLOWED_WS_ORIGINS.length > 0) {
+        if (!config.ALLOWED_WS_ORIGINS.includes(origin)) {
+          ws.close(4003, 'Invalid origin');
+          return;
+        }
+      } else if (config.IS_PRODUCTION) {
+        // No origins configured in production — reject all cross-origin
+        ws.close(4003, 'Invalid origin');
+        return;
+      }
+      // In development with no explicit config, allow all (dev convenience)
+    }
+
+    const params = new URL(req.url || '', 'http://localhost').searchParams;
+    const ticket = params.get('ticket');
+
+    if (!ticket) {
+      ws.close(4001, 'Authentication required');
+      return;
+    }
+
+    const ticketData = consumeWsTicket(ticket);
+    if (!ticketData) {
+      ws.close(4001, 'Invalid or expired ticket');
+      return;
+    }
+    const user: WsUser = { id: ticketData.userId, username: ticketData.username };
+
+    // Verify user still exists in database AND userId matches (prevents stale ticket
+    // from authenticating as wrong user if account was deleted and re-created)
+    const dbUser = stmt.getUserByUsername.get(user.username) as DbUser | undefined;
+    if (!dbUser || dbUser.id !== user.id) {
+      ws.close(4001, 'User not found');
+      return;
+    }
+
+    // H1: Reject WS connection if password was changed after ticket was issued
+    if (dbUser.password_changed_at) {
+      const changedAt = new Date(dbUser.password_changed_at + 'Z').getTime();
+      // Ticket was issued at (expiresAt - TTL), check if password changed after that
+      const ticketIssuedAt = ticketData.expiresAt - 30000; // WS_TICKET_TTL_MS is 30s
+      if (ticketIssuedAt < changedAt) {
+        ws.close(4001, 'Session invalidated');
+        return;
+      }
+    }
+
+    ws._isAlive = true;
+    ws._userId = user.id;
+
+    ws.on('pong', () => {
+      ws._isAlive = true;
+    });
+
+    addConnection(user.id, ws);
+    incr('wsConnections');
+
+    logger.debug({ userId: user.id, username: user.username }, 'WS connected');
+
+    // Send this user only their contacts' online status FIRST
+    const partnerIds = getConversationPartners(user.id);
+    const onlinePartnerIds = partnerIds.filter(id => isOnline(id));
+    ws.send(JSON.stringify({
+      type: WS_MSG_TYPE.PRESENCE,
+      onlineUserIds: onlinePartnerIds,
+    }));
+
+    // THEN broadcast presence to partners (so they know you're online)
+    broadcastPresence(user.id, user.username, true);
+
+    // C3: Per-userId rate limiting (persists across reconnections)
+    ws.on('message', (data: Buffer | ArrayBuffer | Buffer[]) => {
+      incr('wsMessagesIn');
+      const now = Date.now();
+      let limit = userRateLimits.get(user.id);
+      if (!limit || now - limit.windowStart > WS_RATE_WINDOW) {
+        limit = { count: 0, windowStart: now };
+        userRateLimits.set(user.id, limit);
+      }
+      limit.count++;
+      if (limit.count > WS_RATE_LIMIT) {
+        ws.send(JSON.stringify({ type: 'error', message: 'Rate limit exceeded' }));
+        return;
+      }
+      handleMessage(ws, user, data.toString());
+    });
+
+    ws.on('close', () => {
+      removeConnection(user.id, ws);
+      // C3: Do NOT delete rate limit state on disconnect — let it expire via periodic cleanup
+      logger.debug({ userId: user.id, username: user.username }, 'WS disconnected');
+      broadcastPresence(user.id, user.username, false);
+    });
+
+    ws.on('error', (err: Error) => {
+      logger.error({ err, userId: user.id }, 'WS error');
+      removeConnection(user.id, ws);
+    });
+  });
+
+  return wss;
+}
+
+// Broadcast presence only to users who have exchanged messages with this user
+function broadcastPresence(userId: number, username: string, online: boolean): void {
+  const partnerIds = getConversationPartners(userId);
+
+  for (const partnerId of partnerIds) {
+    if (isOnline(partnerId)) {
+      const partnerWs = getConnection(partnerId);
+      if (partnerWs && partnerWs.readyState === WsWebSocket.OPEN) {
+        partnerWs.send(JSON.stringify({
+          type: WS_MSG_TYPE.PRESENCE,
+          userId,
+          username,
+          online,
+        }));
+      }
+    }
+  }
+}
+
+export { setupWebSocket };

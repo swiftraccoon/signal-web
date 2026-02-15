@@ -1,4 +1,4 @@
-# Stage 1: Build client bundle
+# Stage 1: Build server + client bundle
 FROM node:20-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
@@ -14,9 +14,8 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
-# Copy server code
-COPY server/ ./server/
-COPY shared/ ./shared/
+# Copy compiled server
+COPY --from=build /app/dist/ ./dist/
 
 # Copy built client
 COPY client/index.html ./client/index.html
@@ -25,7 +24,7 @@ COPY --from=build /app/client/dist/ ./client/dist/
 
 # Create non-root user and data directory
 RUN addgroup -S app && adduser -S app -G app && \
-    mkdir -p /data && chown app:app /data
+    mkdir -p /data && chown app:app /data && chmod 700 /data
 
 ENV NODE_ENV=production
 ENV DB_PATH=/data/signal-web.db
@@ -39,4 +38,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 
 USER app
 
-CMD ["node", "server/index.js"]
+CMD ["node", "dist/server/index.js"]

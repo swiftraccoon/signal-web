@@ -4,7 +4,7 @@ import jwt from 'jsonwebtoken';
 import config from '../config';
 import { stmt, deleteUser, audit } from '../db';
 import { validateRegister, validateLogin } from '../middleware/validate';
-import { authLimiter } from '../middleware/rateLimiter';
+import { authLimiter, accountDeleteLimiter } from '../middleware/rateLimiter';
 import { authenticateToken } from '../middleware/auth';
 import { getConnection, isOnline } from '../ws/connections';
 import { createWsTicket } from '../ws/tickets';
@@ -133,7 +133,7 @@ router.post('/login', authLimiter, ...validateLogin, async (req: Request, res: R
   }
 });
 
-router.delete('/account', authenticateToken, async (req: Request, res: Response) => {
+router.delete('/account', authenticateToken, accountDeleteLimiter, async (req: Request, res: Response) => {
   const ip = getClientIp(req);
   try {
     const { password } = req.body as { password?: string };

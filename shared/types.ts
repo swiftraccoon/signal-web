@@ -130,6 +130,7 @@ export interface ServerConfig {
   IS_PRODUCTION: boolean;
   MAX_FAILED_LOGINS: number;
   LOCKOUT_DURATION_MIN: number;
+  REDIS_URL: string | null;
   ALLOWED_WS_ORIGINS: string[];
 }
 

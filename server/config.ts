@@ -42,6 +42,7 @@ const config: ServerConfig = {
   IS_PRODUCTION: isProduction,
   MAX_FAILED_LOGINS: 10,
   LOCKOUT_DURATION_MIN,
+  REDIS_URL: process.env.REDIS_URL || null,
   ALLOWED_WS_ORIGINS: process.env.ALLOWED_WS_ORIGINS
     ? process.env.ALLOWED_WS_ORIGINS.split(',')
     : isProduction

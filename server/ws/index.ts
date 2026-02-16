@@ -6,6 +6,7 @@ import { handleMessage } from './handler';
 import { consumeWsTicket } from './tickets';
 import { MAX_WS_MESSAGE_SIZE, WS_MSG_TYPE } from '../../shared/constants';
 import logger from '../logger';
+import { audit } from '../audit';
 import { incr } from '../metrics';
 import { stmt, getConversationPartners } from '../db';
 import { getRedis } from '../redis';
@@ -103,6 +104,12 @@ function setupWebSocket(server: http.Server): WebSocketServer {
 
     // C7: Origin validation via explicit allowlist (not trusting Host header)
     const origin = req.headers.origin;
+    if (config.IS_PRODUCTION && !origin) {
+      logger.warn({ ip: req.socket.remoteAddress }, 'WS rejected: missing Origin header');
+      audit('ws_rejected', { ip: req.socket.remoteAddress as string, details: 'Missing Origin' });
+      ws.close(4003, 'Origin required');
+      return;
+    }
     if (origin) {
       if (config.ALLOWED_WS_ORIGINS.length > 0) {
         if (!config.ALLOWED_WS_ORIGINS.includes(origin)) {

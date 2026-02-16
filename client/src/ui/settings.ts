@@ -2,6 +2,7 @@ import { api, getCurrentUser } from '../api';
 import { showToast } from './notifications';
 import { requestNotificationPermission, setNotificationsEnabled, getNotificationsEnabled } from './notifications';
 import { reEncryptAllStores } from '../storage/indexeddb';
+import { exportKeys, importKeys } from '../signal/store';
 
 let onAccountDeleted: (() => void) | null = null;
 
@@ -108,6 +109,87 @@ export function initSettings(deleteCallback: () => void): void {
       if (onAccountDeleted) onAccountDeleted();
     } catch (err) {
       showToast((err as Error).message, 'error');
+    }
+  });
+
+  // Key Backup: Export Keys
+  document.getElementById('export-keys-btn')!.addEventListener('click', async () => {
+    const user = getCurrentUser();
+    if (!user) {
+      showToast('Not logged in', 'error');
+      return;
+    }
+
+    const password = window.prompt('Enter a password to encrypt your key backup:');
+    if (!password) return;
+
+    if (password.length < 8) {
+      showToast('Backup password must be at least 8 characters', 'error');
+      return;
+    }
+
+    const confirmPassword = window.prompt('Confirm backup password:');
+    if (password !== confirmPassword) {
+      showToast('Passwords do not match', 'error');
+      return;
+    }
+
+    try {
+      const blob = await exportKeys(password, user.username);
+      const filename = `signal-web-keys-${user.username}-${new Date().toISOString().slice(0, 10)}.json`;
+      const file = new Blob([JSON.stringify({ backup: blob })], { type: 'application/json' });
+      const url = URL.createObjectURL(file);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast('Keys exported successfully', 'success');
+    } catch (err) {
+      showToast(`Export failed: ${(err as Error).message}`, 'error');
+    }
+  });
+
+  // Key Backup: Import Keys
+  const importFileInput = document.getElementById('import-keys-file') as HTMLInputElement;
+
+  document.getElementById('import-keys-btn')!.addEventListener('click', () => {
+    importFileInput.value = '';
+    importFileInput.click();
+  });
+
+  importFileInput.addEventListener('change', async () => {
+    const file = importFileInput.files?.[0];
+    if (!file) return;
+
+    const user = getCurrentUser();
+    if (!user) {
+      showToast('Not logged in', 'error');
+      return;
+    }
+
+    const password = window.prompt('Enter the password used to encrypt this backup:');
+    if (!password) return;
+
+    try {
+      const text = await file.text();
+      let parsed: { backup: string };
+      try {
+        parsed = JSON.parse(text) as { backup: string };
+      } catch {
+        throw new Error('Invalid backup file format');
+      }
+
+      if (!parsed.backup) {
+        throw new Error('Invalid backup file: missing backup data');
+      }
+
+      await importKeys(parsed.backup, password, user.username);
+      showToast('Keys imported successfully. Reload the page to use restored keys.', 'success');
+    } catch (err) {
+      showToast(`Import failed: ${(err as Error).message}`, 'error');
     }
   });
 }

@@ -101,6 +101,13 @@
             <span>Enable desktop notifications</span>
           </label>
         </div>
+        <div class="settings-section">
+          <h4>Key Backup</h4>
+          <p class="settings-info">Export your encryption keys as an encrypted backup file. You will need the backup password to restore them.</p>
+          <button id="export-keys-btn" class="btn-secondary">Export Keys</button>
+          <button id="import-keys-btn" class="btn-secondary">Import Keys</button>
+          <input type="file" id="import-keys-file" accept=".json" class="hidden">
+        </div>
         <div class="settings-section danger-section">
           <h4>Danger Zone</h4>
           <p class="settings-warning">Permanently delete your account and all data. This cannot be undone.</p>

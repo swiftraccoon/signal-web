@@ -49,6 +49,169 @@ function deserializeKeyPair(kp: unknown): KeyPairType | undefined {
 
 export { ab2b64, b642ab, zeroArrayBuffer };
 
+// --- Key Backup Export/Import ---
+// Uses a SEPARATE PBKDF2-derived key (not the IndexedDB encryption key) to
+// encrypt identity key pair + registration ID into a portable backup blob.
+
+interface KeyBackupBlob {
+  version: number;
+  salt: string;   // base64-encoded 32-byte random salt
+  iv: string;     // base64-encoded 12-byte random IV
+  data: string;   // base64-encoded AES-GCM ciphertext
+}
+
+const BACKUP_PBKDF2_ITERATIONS = 600000;
+
+async function deriveBackupKey(password: string, username: string, salt: Uint8Array): Promise<CryptoKey> {
+  const enc = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw', enc.encode(password + ':' + username), 'PBKDF2', false, ['deriveKey']
+  );
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt: salt as BufferSource, iterations: BACKUP_PBKDF2_ITERATIONS, hash: 'SHA-256' },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+
+function uint8ToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]!);
+  }
+  return btoa(binary);
+}
+
+function base64ToUint8(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return arr;
+}
+
+/**
+ * Export identity keys as an encrypted backup blob.
+ * Derives a separate AES-256-GCM key from password + random salt via PBKDF2.
+ * Returns a base64-encoded JSON string containing { version, salt, iv, data }.
+ */
+export async function exportKeys(password: string, username: string): Promise<string> {
+  const store = new SignalProtocolStore();
+  const identityKeyPair = await store.getIdentityKeyPair();
+  const registrationId = await store.getLocalRegistrationId();
+
+  if (!identityKeyPair) {
+    throw new Error('No identity key pair found');
+  }
+  if (registrationId === undefined) {
+    throw new Error('No registration ID found');
+  }
+
+  // Serialize the key pair to base64 strings
+  const serializedKeyPair: SerializedKeyPair = {
+    pubKey: ab2b64(identityKeyPair.pubKey),
+    privKey: ab2b64(identityKeyPair.privKey),
+  };
+
+  const payload = JSON.stringify({
+    identityKeyPair: serializedKeyPair,
+    registrationId,
+  });
+
+  // Generate random salt and IV
+  // M2: Validate CSPRNG output is not degenerate (all-zero detection)
+  const salt = crypto.getRandomValues(new Uint8Array(32));
+  if (salt.every(byte => byte === 0)) throw new Error('CSPRNG failure: generated all-zero salt');
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  if (iv.every(byte => byte === 0)) throw new Error('CSPRNG failure: generated all-zero IV');
+
+  // Derive a separate backup key from password + username + salt
+  const backupKey = await deriveBackupKey(password, username, salt);
+
+  // Encrypt the payload
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    backupKey,
+    new TextEncoder().encode(payload)
+  );
+
+  const blob: KeyBackupBlob = {
+    version: 1,
+    salt: uint8ToBase64(salt),
+    iv: uint8ToBase64(iv),
+    data: uint8ToBase64(new Uint8Array(ciphertext)),
+  };
+
+  // Zero sensitive material
+  zeroArrayBuffer(identityKeyPair.privKey);
+
+  return btoa(JSON.stringify(blob));
+}
+
+/**
+ * Import identity keys from an encrypted backup blob.
+ * Derives the same key from password + stored salt, decrypts, and writes
+ * the identity key pair and registration ID back to IndexedDB.
+ */
+export async function importKeys(blob: string, password: string, username: string): Promise<void> {
+  let parsed: KeyBackupBlob;
+  try {
+    parsed = JSON.parse(atob(blob)) as KeyBackupBlob;
+  } catch {
+    throw new Error('Invalid backup file format');
+  }
+
+  if (!parsed.version || !parsed.salt || !parsed.iv || !parsed.data) {
+    throw new Error('Invalid backup file: missing required fields');
+  }
+  if (parsed.version !== 1) {
+    throw new Error(`Unsupported backup version: ${parsed.version}`);
+  }
+
+  const salt = base64ToUint8(parsed.salt);
+  const iv = base64ToUint8(parsed.iv);
+  const ciphertext = base64ToUint8(parsed.data);
+
+  // Derive the same backup key (password + username bound)
+  const backupKey = await deriveBackupKey(password, username, salt);
+
+  let decrypted: string;
+  try {
+    const plaintext = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv },
+      backupKey,
+      ciphertext
+    );
+    decrypted = new TextDecoder().decode(plaintext);
+  } catch {
+    throw new Error('Decryption failed: wrong password or corrupted backup');
+  }
+
+  let payload: { identityKeyPair: SerializedKeyPair; registrationId: number };
+  try {
+    payload = JSON.parse(decrypted) as { identityKeyPair: SerializedKeyPair; registrationId: number };
+  } catch {
+    throw new Error('Invalid backup data format');
+  }
+
+  if (!payload.identityKeyPair?.pubKey || !payload.identityKeyPair?.privKey) {
+    throw new Error('Invalid backup: missing identity key pair');
+  }
+  if (typeof payload.registrationId !== 'number') {
+    throw new Error('Invalid backup: missing registration ID');
+  }
+
+  // Write restored keys to IndexedDB via the store
+  const store = new SignalProtocolStore();
+  const keyPair = {
+    pubKey: b642ab(payload.identityKeyPair.pubKey),
+    privKey: b642ab(payload.identityKeyPair.privKey),
+  };
+  await store.saveIdentityKeyPair(keyPair);
+  await store.saveLocalRegistrationId(payload.registrationId);
+}
+
 // Identity key change event system
 type IdentityKeyChangeListener = (username: string) => void;
 const identityKeyChangeListeners = new Set<IdentityKeyChangeListener>();

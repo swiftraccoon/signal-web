@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+echo "==> Starting dev mode (server + client watchers)..."
+exec npx concurrently \
+  "tsc -p tsconfig.server.json --watch --preserveWatchOutput" \
+  "node esbuild.config.js --watch" \
+  "node --watch dist/server/index.js"

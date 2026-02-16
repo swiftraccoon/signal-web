@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+echo "==> Cleaning build artifacts..."
+rm -rf dist/
+rm -f client/dist/bundle.js client/dist/bundle.js.map
+rm -f .server.pid
+
+echo "==> Clean."

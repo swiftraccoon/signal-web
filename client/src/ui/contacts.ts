@@ -63,7 +63,9 @@ function renderSearchResults(users: ApiUser[], container: HTMLElement): void {
 export async function loadContacts(): Promise<void> {
   const { keys, values } = await getAll(STORES.CONTACTS);
   for (let i = 0; i < keys.length; i++) {
-    contacts[keys[i] as string] = values[i] as Contact;
+    if (values[i]) {
+      contacts[keys[i] as string] = values[i] as Contact;
+    }
   }
   renderContacts();
 }

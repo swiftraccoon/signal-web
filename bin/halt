@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+PIDFILE=".server.pid"
+
+if [ ! -f "$PIDFILE" ]; then
+  echo "No PID file found. Server may not be running."
+  exit 0
+fi
+
+pid=$(cat "$PIDFILE")
+
+if kill -0 "$pid" 2>/dev/null; then
+  echo "==> Stopping server (PID $pid)..."
+  kill "$pid"
+  # Wait up to 5s for graceful shutdown
+  for i in $(seq 1 50); do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      break
+    fi
+    sleep 0.1
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    echo "==> Forcefully killing server..."
+    kill -9 "$pid" 2>/dev/null || true
+  fi
+  echo "==> Server stopped."
+else
+  echo "Server not running (stale PID $pid)."
+fi
+
+rm -f "$PIDFILE"

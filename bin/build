@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+mode="${1:-dev}"
+
+echo "==> Building server (tsc)..."
+npx tsc -p tsconfig.server.json
+
+echo "==> Building client (esbuild)..."
+if [ "$mode" = "production" ] || [ "$mode" = "prod" ]; then
+  NODE_ENV=production node esbuild.config.js
+else
+  node esbuild.config.js
+fi
+
+echo "==> Build complete ($mode)."

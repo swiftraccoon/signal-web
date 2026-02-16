@@ -33,7 +33,7 @@ app.use(helmet({
     directives: {
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'"],
-      styleSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
       connectSrc: config.IS_PRODUCTION
         ? ["'self'", "wss:"]
         : ["'self'", "ws://localhost:*", "wss://localhost:*"],

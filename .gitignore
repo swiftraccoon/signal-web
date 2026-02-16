@@ -5,4 +5,5 @@ dist/
 *.db-wal
 *.db-shm
 .env
+.server.pid
 CLAUDE.md

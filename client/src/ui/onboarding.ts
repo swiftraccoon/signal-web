@@ -44,34 +44,39 @@ function createTooltip(): HTMLDivElement {
 function positionTooltip(tooltipEl: HTMLDivElement, targetSelector: string): void {
   const target = document.querySelector(targetSelector);
   if (!target) {
-    // Fallback: center on screen
-    tooltipEl.style.top = '50%';
-    tooltipEl.style.left = '50%';
-    tooltipEl.style.transform = 'translate(-50%, -50%)';
+    centerTooltip(tooltipEl);
     return;
   }
 
   const rect = target.getBoundingClientRect();
   const tooltipRect = tooltipEl.getBoundingClientRect();
+  const vh = window.innerHeight;
 
-  // Position below the target element by default
-  let top = rect.bottom + 12;
   let left = rect.left + rect.width / 2 - tooltipRect.width / 2;
-
-  // Keep within viewport horizontally
   if (left < 8) left = 8;
   if (left + tooltipRect.width > window.innerWidth - 8) {
     left = window.innerWidth - tooltipRect.width - 8;
   }
 
-  // If tooltip would go below viewport, position above instead
-  if (top + tooltipRect.height > window.innerHeight - 8) {
+  // Try below, then above, then center vertically on the target
+  let top = rect.bottom + 12;
+  if (top + tooltipRect.height > vh - 8) {
     top = rect.top - tooltipRect.height - 12;
+  }
+  if (top < 8) {
+    top = rect.top + rect.height / 2 - tooltipRect.height / 2;
+    top = Math.max(8, Math.min(top, vh - tooltipRect.height - 8));
   }
 
   tooltipEl.style.top = `${top}px`;
   tooltipEl.style.left = `${left}px`;
   tooltipEl.style.transform = 'none';
+}
+
+function centerTooltip(tooltipEl: HTMLDivElement): void {
+  tooltipEl.style.top = '50%';
+  tooltipEl.style.left = '50%';
+  tooltipEl.style.transform = 'translate(-50%, -50%)';
 }
 
 function buildTooltipContent(

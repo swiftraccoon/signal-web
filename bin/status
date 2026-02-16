@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+PIDFILE=".server.pid"
+
+# Server process
+if [ -f "$PIDFILE" ]; then
+  pid=$(cat "$PIDFILE")
+  if kill -0 "$pid" 2>/dev/null; then
+    echo "Server:  running (PID $pid)"
+  else
+    echo "Server:  not running (stale PID file)"
+  fi
+else
+  echo "Server:  not running"
+fi
+
+# Build state
+if [ -f "dist/server/index.js" ]; then
+  echo "Build:   $(stat -f '%Sm' -t '%Y-%m-%d %H:%M:%S' dist/server/index.js 2>/dev/null || stat -c '%y' dist/server/index.js 2>/dev/null | cut -d. -f1)"
+else
+  echo "Build:   not built"
+fi
+
+# Database
+if [ -f "signal-web.db" ]; then
+  size=$(du -h signal-web.db | cut -f1)
+  echo "Database: $size (signal-web.db)"
+else
+  echo "Database: none"
+fi
+
+# Redis
+if command -v redis-cli &>/dev/null && redis-cli ping &>/dev/null 2>&1; then
+  echo "Redis:   connected"
+else
+  echo "Redis:   not available (will use in-memory fallback)"
+fi

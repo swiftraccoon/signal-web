@@ -55,7 +55,8 @@ db.exec(`
     type INTEGER NOT NULL,
     body TEXT NOT NULL,
     timestamp TEXT DEFAULT (datetime('now')),
-    delivered INTEGER DEFAULT 0
+    delivered INTEGER DEFAULT 0,
+    expires_at INTEGER
   );
 
   CREATE TABLE IF NOT EXISTS audit_log (

@@ -11,30 +11,25 @@ export async function generateAndStoreKeys(store: SignalProtocolStore): Promise<
   const identityKeyPair = await KeyHelper.generateIdentityKeyPair();
   const registrationId = KeyHelper.generateRegistrationId();
 
-  await store.saveIdentityKeyPair(identityKeyPair);
-  await store.saveLocalRegistrationId(registrationId);
-
-  // Generate signed pre-key (key ID = 1)
+  // Sign pre-key BEFORE saving identity key pair — saveIdentityKeyPair
+  // zeros identityKeyPair.privKey in place (H7 hardening), so we must
+  // use the private key for signing first.
   const signedPreKeyId = 1;
   const signedPreKey = await KeyHelper.generateSignedPreKey(identityKeyPair, signedPreKeyId);
-  await store.storeSignedPreKey(signedPreKey.keyId, signedPreKey.keyPair);
-  await put(STORES.META, 'signedPreKeyId', signedPreKeyId);
-  await put(STORES.META, 'signedPreKeyTimestamp', Date.now());
 
   // Generate one-time pre-keys
   const preKeys: PreKeyPublic[] = [];
   for (let i = 1; i <= PREKEY_BATCH_SIZE; i++) {
     const preKey = await KeyHelper.generatePreKey(i);
-    await store.storePreKey(preKey.keyId, preKey.keyPair);
     preKeys.push({
       keyId: preKey.keyId,
       publicKey: ab2b64(preKey.keyPair.pubKey),
     });
+    await store.storePreKey(preKey.keyId, preKey.keyPair);
   }
 
-  await put(STORES.META, 'nextPreKeyId', PREKEY_BATCH_SIZE + 1);
-
-  return {
+  // Build the upload bundle before saving identity key pair (which zeros privKey)
+  const bundle: PreKeyBundleUpload = {
     registrationId,
     identityKey: ab2b64(identityKeyPair.pubKey),
     signedPreKey: {
@@ -44,6 +39,16 @@ export async function generateAndStoreKeys(store: SignalProtocolStore): Promise<
     },
     preKeys,
   };
+
+  // Now safe to save (zeros privKey) and store remaining data
+  await store.saveIdentityKeyPair(identityKeyPair);
+  await store.saveLocalRegistrationId(registrationId);
+  await store.storeSignedPreKey(signedPreKey.keyId, signedPreKey.keyPair);
+  await put(STORES.META, 'signedPreKeyId', signedPreKeyId);
+  await put(STORES.META, 'signedPreKeyTimestamp', Date.now());
+  await put(STORES.META, 'nextPreKeyId', PREKEY_BATCH_SIZE + 1);
+
+  return bundle;
 }
 
 // L11: Wrap pre-key IDs to prevent overflow beyond Number.MAX_SAFE_INTEGER

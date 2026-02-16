@@ -1,7 +1,8 @@
 import type { EncryptedValue } from '../../../shared/types';
 
-const DB_NAME = 'signal-web';
+const DB_NAME_PREFIX = 'signal-web';
 const DB_VERSION = 6;
+let dbUsername: string | null = null;
 
 const STORES = {
   IDENTITY_KEY_PAIR: 'identityKeyPair',
@@ -120,12 +121,23 @@ async function getOrCreateCryptoParams(username: string): Promise<{ salt: Uint8A
 }
 
 async function initEncryption(password: string, username: string): Promise<void> {
+  // Close previous DB if switching users
+  if (dbInstance && dbUsername !== username) {
+    dbInstance.close();
+    dbInstance = null;
+  }
+  dbUsername = username;
   const { salt, iterations } = await getOrCreateCryptoParams(username);
   encryptionKey = await deriveStorageKey(password, salt, iterations);
 }
 
 function clearEncryptionKey(): void {
   encryptionKey = null;
+  if (dbInstance) {
+    dbInstance.close();
+    dbInstance = null;
+  }
+  dbUsername = null;
 }
 
 function uint8ToBase64(bytes: Uint8Array): string {
@@ -174,8 +186,9 @@ async function decryptValue(stored: unknown): Promise<unknown> {
 function open(): Promise<IDBDatabase> {
   if (dbInstance) return Promise.resolve(dbInstance);
 
+  const dbName = dbUsername ? `${DB_NAME_PREFIX}:${dbUsername}` : DB_NAME_PREFIX;
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    const request = indexedDB.open(dbName, DB_VERSION);
 
     request.onupgradeneeded = (e) => {
       const db = (e.target as IDBOpenDBRequest).result;

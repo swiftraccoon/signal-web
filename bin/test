@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+mode="${1:-run}"
+
+case "$mode" in
+  run)
+    echo "==> Running tests..."
+    npx vitest run
+    ;;
+  watch)
+    echo "==> Running tests in watch mode..."
+    exec npx vitest
+    ;;
+  coverage)
+    echo "==> Running tests with coverage..."
+    npx vitest run --coverage
+    ;;
+  e2e)
+    echo "==> Running E2E tests (server must be on port 3001)..."
+    npx tsx test-e2e.ts
+    ;;
+  *)
+    echo "Usage: bin/test [run|watch|coverage|e2e]"
+    exit 1
+    ;;
+esac

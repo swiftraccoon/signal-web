@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+echo "==> Type-checking server..."
+npx tsc -p tsconfig.server.json --noEmit
+
+echo "==> Type-checking client..."
+npx tsc -p tsconfig.client.json --noEmit
+
+echo "==> All types OK."

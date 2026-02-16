@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+# Load .env if present (so script sees the same config as the server)
+if [ -f .env ]; then
+  set -a
+  . ./.env
+  set +a
+fi
+
+PIDFILE=".server.pid"
+PORT="${PORT:-3000}"
+
+if [ -f "$PIDFILE" ]; then
+  pid=$(cat "$PIDFILE")
+  if kill -0 "$pid" 2>/dev/null; then
+    echo "Server already running (PID $pid, port $PORT)."
+    exit 0
+  fi
+  rm -f "$PIDFILE"
+fi
+
+# Build first if dist doesn't exist
+if [ ! -f "dist/server/index.js" ]; then
+  echo "==> No build found, building first..."
+  ./bin/build
+fi
+
+echo "==> Starting server on port $PORT..."
+node dist/server/index.js &
+pid=$!
+echo "$pid" > "$PIDFILE"
+echo "==> Server started (PID $pid, port $PORT)."

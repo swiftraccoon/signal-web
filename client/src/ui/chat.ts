@@ -110,11 +110,17 @@ export function initChat(): void {
     }
   });
 
-  // Typing indicator
+  // Typing indicator (throttled to avoid hitting server rate limits)
   let typingTimeout: ReturnType<typeof setTimeout> | null = null;
+  let lastTypingSent = 0;
+  const TYPING_THROTTLE_MS = 500;
   input.addEventListener('input', () => {
     if (!currentChat) return;
-    wsSend({ type: WS_MSG_TYPE.TYPING, to: currentChat, isTyping: true });
+    const now = Date.now();
+    if (now - lastTypingSent >= TYPING_THROTTLE_MS) {
+      wsSend({ type: WS_MSG_TYPE.TYPING, to: currentChat, isTyping: true });
+      lastTypingSent = now;
+    }
     if (typingTimeout) clearTimeout(typingTimeout);
     typingTimeout = setTimeout(() => {
       wsSend({ type: WS_MSG_TYPE.TYPING, to: currentChat!, isTyping: false });

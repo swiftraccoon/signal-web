@@ -1,7 +1,7 @@
 import { STORES, get, put, putDebounced } from '../storage/indexeddb';
 import QRCode from 'qrcode';
 import { encryptMessage, decryptMessage } from '../signal/client';
-import { send as wsSend } from '../ws';
+import { send as wsSend, on as wsOn, requeueMessage } from '../ws';
 import { getContactInfo, updateLastMessage, isContactOnline } from './contacts';
 import { showToast } from './notifications';
 import { WS_MSG_TYPE } from '../../../shared/constants';
@@ -14,6 +14,13 @@ let disappearIntervals: Record<string, ReturnType<typeof setInterval>> = {};
 let renderScheduled = false; // rAF debounce flag
 let messageIdLookup = new Map<string, string>(); // msgId -> username for O(1) status lookups
 const MAX_ID_LOOKUP_SIZE = 2000; // prevent unbounded growth
+
+// Track failed messages for retry UI
+interface FailedMessageInfo {
+  queueId: string;
+  message: { type: string; [key: string]: unknown };
+}
+const failedMessages = new Map<string, FailedMessageInfo>(); // msgId -> failed info
 
 // URL regex - matches http/https URLs
 const URL_REGEX = /https?:\/\/[^\s<>"')\]]+/g;
@@ -119,6 +126,36 @@ export function initChat(): void {
     document.getElementById('chat-active')!.classList.add('hidden');
     document.getElementById('chat-placeholder')!.classList.remove('hidden');
     currentChat = null;
+  });
+
+  // Listen for send_failed events to show retry buttons
+  wsOn('send_failed', (data?: unknown) => {
+    const failedData = data as { queueId: string; message: { type: string; id?: string; to?: string; [key: string]: unknown } } | undefined;
+    if (!failedData || !failedData.message) return;
+
+    const msgId = failedData.message.id as string | undefined;
+    if (!msgId) return;
+
+    failedMessages.set(msgId, {
+      queueId: failedData.queueId,
+      message: failedData.message,
+    });
+
+    // Update the message status in history
+    const username = failedData.message.to as string | undefined;
+    if (username && messageHistory[username]) {
+      for (const msg of messageHistory[username]!) {
+        if (msg.id === msgId && msg.sent) {
+          msg.status = 'sent'; // Keep as sent but UI will show retry based on failedMessages map
+          break;
+        }
+      }
+    }
+
+    // Re-render if we're viewing this chat
+    if (username && currentChat === username) {
+      scheduleRender(username);
+    }
   });
 }
 
@@ -514,6 +551,27 @@ function renderMessages(username: string): void {
 
     div.appendChild(textEl);
     div.appendChild(footer);
+
+    // Show retry button for failed messages
+    if (msg.sent && msg.id && failedMessages.has(msg.id)) {
+      div.classList.add('send-failed');
+      const retryBtn = document.createElement('button');
+      retryBtn.className = 'retry-btn';
+      retryBtn.textContent = 'Retry';
+      retryBtn.type = 'button';
+      const failedMsgId = msg.id;
+      retryBtn.addEventListener('click', () => {
+        const failedInfo = failedMessages.get(failedMsgId);
+        if (failedInfo) {
+          failedMessages.delete(failedMsgId);
+          requeueMessage(failedInfo.message);
+          // Re-render to remove the retry button
+          if (currentChat) scheduleRender(currentChat);
+        }
+      });
+      div.appendChild(retryBtn);
+    }
+
     container.appendChild(div);
   }
 

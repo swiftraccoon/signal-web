@@ -41,15 +41,7 @@ async function checkReplay(dedupeKey: string): Promise<boolean> {
   return true; // new message
 }
 
-async function handleMessage(ws: WebSocket, user: WsUser, data: string): Promise<void> {
-  let msg: Record<string, unknown>;
-  try {
-    msg = JSON.parse(data) as Record<string, unknown>;
-  } catch {
-    sendError(ws, 'Invalid JSON');
-    return;
-  }
-
+async function handleMessage(ws: WebSocket, user: WsUser, msg: Record<string, unknown>): Promise<void> {
   switch (msg.type) {
     case WS_MSG_TYPE.MESSAGE:
       await handleChatMessage(ws, user, msg);

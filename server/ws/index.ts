@@ -17,49 +17,61 @@ interface SignalWebSocket extends WsWebSocket {
   _userId: number;
 }
 
-const WS_RATE_LIMIT = 20;
 const WS_RATE_WINDOW = 1000;
 const PING_INTERVAL = 30000;
 
-// C3: Per-userId rate limiting — persists across reconnections (NOT deleted on disconnect)
-const userRateLimits = new Map<number, UserRateLimitEntry>();
+// Per-message-type rate limits (max messages per second)
+const WS_RATE_LIMITS: Record<string, number> = {
+  [WS_MSG_TYPE.MESSAGE]: 20,
+  [WS_MSG_TYPE.TYPING]: 3,
+  [WS_MSG_TYPE.READ_RECEIPT]: 10,
+  [WS_MSG_TYPE.DISAPPEARING_TIMER]: 5,
+  [WS_MSG_TYPE.ACK]: 50,
+};
+const WS_RATE_LIMIT_DEFAULT = 20;
+
+// C3: Per-userId, per-type rate limiting — persists across reconnections (NOT deleted on disconnect)
+// Key format: "userId:msgType"
+const userRateLimits = new Map<string, UserRateLimitEntry>();
 
 // C3: Periodic cleanup of stale rate limit entries (replaces on-disconnect deletion)
 setInterval(() => {
   const now = Date.now();
-  for (const [userId, limit] of userRateLimits) {
+  for (const [key, limit] of userRateLimits) {
     if (now - limit.windowStart > WS_RATE_WINDOW * 10) {
-      userRateLimits.delete(userId);
+      userRateLimits.delete(key);
     }
   }
 }, WS_RATE_WINDOW * 10);
 
-// Redis-backed rate limiting with in-memory fallback
-async function checkWsRateLimit(userId: number): Promise<boolean> {
+// Redis-backed rate limiting with in-memory fallback (per message type)
+async function checkWsRateLimit(userId: number, msgType: string): Promise<boolean> {
+  const maxCount = WS_RATE_LIMITS[msgType] ?? WS_RATE_LIMIT_DEFAULT;
   const redis = getRedis();
   if (redis) {
     try {
-      const key = `wsrl:${userId}`;
+      const key = `wsrl:${userId}:${msgType}`;
       const count = await redis.incr(key);
       if (count === 1) {
         await redis.pexpire(key, WS_RATE_WINDOW);
       }
-      return count <= WS_RATE_LIMIT;
+      return count <= maxCount;
     } catch (err) {
-      logger.warn({ err, userId }, 'Redis rate limit check failed, falling back to in-memory');
+      logger.warn({ err, userId, msgType }, 'Redis rate limit check failed, falling back to in-memory');
       // Fall through to in-memory logic
     }
   }
 
   // In-memory fallback
+  const bucketKey = `${userId}:${msgType}`;
   const now = Date.now();
-  let limit = userRateLimits.get(userId);
+  let limit = userRateLimits.get(bucketKey);
   if (!limit || now - limit.windowStart > WS_RATE_WINDOW) {
     limit = { count: 0, windowStart: now };
-    userRateLimits.set(userId, limit);
+    userRateLimits.set(bucketKey, limit);
   }
   limit.count++;
-  return limit.count <= WS_RATE_LIMIT;
+  return limit.count <= maxCount;
 }
 
 function setupWebSocket(server: http.Server): WebSocketServer {
@@ -174,15 +186,28 @@ function setupWebSocket(server: http.Server): WebSocketServer {
       }
     }
 
-    // C3: Per-userId rate limiting (persists across reconnections, Redis-backed with fallback)
+    // C3: Per-userId, per-type rate limiting (persists across reconnections, Redis-backed with fallback)
     ws.on('message', async (data: Buffer | ArrayBuffer | Buffer[]) => {
       incr('wsMessagesIn');
-      const withinLimit = await checkWsRateLimit(user.id);
-      if (!withinLimit) {
-        ws.send(JSON.stringify({ type: 'error', message: 'Rate limit exceeded' }));
+
+      // Parse JSON before rate limiting so we can apply per-type limits
+      let msg: Record<string, unknown>;
+      try {
+        msg = JSON.parse(data.toString()) as Record<string, unknown>;
+      } catch {
+        ws.send(JSON.stringify({ type: WS_MSG_TYPE.ERROR, message: 'Invalid JSON' }));
         return;
       }
-      await handleMessage(ws, user, data.toString());
+
+      // Normalize unknown types to a single sentinel key to prevent unbounded Map growth
+      const msgType = typeof msg.type === 'string' ? msg.type : '';
+      const rateLimitType = msgType in WS_RATE_LIMITS ? msgType : '__unknown__';
+      const withinLimit = await checkWsRateLimit(user.id, rateLimitType);
+      if (!withinLimit) {
+        ws.send(JSON.stringify({ type: WS_MSG_TYPE.ERROR, message: 'Rate limit exceeded' }));
+        return;
+      }
+      await handleMessage(ws, user, msg);
     });
 
     ws.on('close', () => {

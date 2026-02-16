@@ -9,6 +9,7 @@ import { getStore, resetStore } from './signal/client';
 import { ab2b64, onIdentityKeyChange } from './signal/store';
 import { generateAndStoreKeys, generateMorePreKeys, rotateSignedPreKeyIfNeeded } from './signal/keys';
 import { clearAll, initEncryption, clearEncryptionKey, upgradeIterationsIfNeeded, remove, STORES } from './storage/indexeddb';
+import { showOnboardingIfNew } from './ui/onboarding';
 import { WS_MSG_TYPE } from '../../shared/constants';
 import type { ApiUser, WsServerChatMessage, WsServerDeliveredMessage, WsServerReadReceiptMessage, WsServerPresenceMessage, WsServerDisappearingTimerMessage, WsServerErrorMessage } from '../../shared/types';
 
@@ -161,6 +162,9 @@ async function enterChat(user: ApiUser, isNewRegistration: boolean): Promise<voi
   } catch (err) {
     console.error('Signed pre-key rotation failed:', err);
   }
+
+  // Show onboarding tour for first-time users
+  showOnboardingIfNew();
 }
 
 function setupWSHandlers(): void {

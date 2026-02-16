@@ -1,7 +1,7 @@
 import type { EncryptedValue } from '../../../shared/types';
 
 const DB_NAME = 'signal-web';
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 
 const STORES = {
   IDENTITY_KEY_PAIR: 'identityKeyPair',
@@ -17,6 +17,7 @@ const STORES = {
   CRYPTO_PARAMS: 'cryptoParams', // Unencrypted store for salt etc.
   MESSAGE_QUEUE: 'message_queue',
   MESSAGE_STATUS: 'message_status',
+  ONBOARDING: 'onboarding',
 } as const;
 
 type StoreName = (typeof STORES)[keyof typeof STORES];

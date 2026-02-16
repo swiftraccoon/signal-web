@@ -346,11 +346,18 @@ function formatTimerLabel(seconds: number): string {
   return `${seconds / 86400} day${seconds >= 172800 ? 's' : ''}`;
 }
 
+function formatTimer(seconds: number): string {
+  if (seconds < 60) return `${seconds} seconds`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} minutes`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)} hour${Math.floor(seconds / 3600) > 1 ? 's' : ''}`;
+  return `${Math.floor(seconds / 86400)} day${Math.floor(seconds / 86400) > 1 ? 's' : ''}`;
+}
+
 function updateDisappearingBanner(username: string): void {
   const banner = document.getElementById('disappearing-banner')!;
   const timer = disappearingTimers[username];
   if (timer && timer > 0) {
-    banner.textContent = `Disappearing messages: ${formatTimerLabel(timer)}`;
+    banner.textContent = `Messages disappear after ${formatTimer(timer)}`;
     banner.classList.remove('hidden');
   } else {
     banner.classList.add('hidden');

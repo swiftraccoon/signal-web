@@ -121,10 +121,32 @@
       <div class="modal-body">
         <p class="safety-instructions">Compare these numbers with your contact to verify end-to-end encryption. If they match, your conversation is secure.</p>
         <div id="safety-fingerprint" class="safety-fingerprint"></div>
+        <div id="safety-qr" class="safety-qr"></div>
         <div class="safety-users">
           <span id="safety-you"></span>
           <span class="safety-divider">&#x2194;</span>
           <span id="safety-them"></span>
+        </div>
+        <div class="safety-actions">
+          <button id="safety-copy-btn" class="btn-secondary">Copy Number</button>
+          <button id="safety-verify-btn" class="btn-primary">Mark as Verified</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Identity Change Modal -->
+  <div id="identity-change-modal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content modal-small">
+      <div class="modal-header">
+        <h3>Safety Number Changed</h3>
+      </div>
+      <div class="modal-body">
+        <p class="identity-warning">The safety number for <strong id="identity-change-user"></strong> has changed. This could mean they reinstalled the app, or someone may be intercepting your messages.</p>
+        <div class="modal-actions">
+          <button id="identity-accept-btn" class="btn-primary">Accept New Key</button>
+          <button id="identity-block-btn" class="btn-danger">Block Contact</button>
         </div>
       </div>
     </div>

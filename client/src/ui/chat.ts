@@ -1,4 +1,5 @@
 import { STORES, get, put, putDebounced } from '../storage/indexeddb';
+import QRCode from 'qrcode';
 import { encryptMessage, decryptMessage } from '../signal/client';
 import { send as wsSend } from '../ws';
 import { getContactInfo, updateLastMessage, isContactOnline } from './contacts';
@@ -687,6 +688,30 @@ async function showSafetyNumber(username: string): Promise<void> {
   document.getElementById('safety-fingerprint')!.textContent = fingerprint.trim();
   document.getElementById('safety-you')!.textContent = user.username;
   document.getElementById('safety-them')!.textContent = username;
+
+  // Render QR code from the fingerprint
+  const qrContainer = document.getElementById('safety-qr')!;
+  while (qrContainer.firstChild) qrContainer.removeChild(qrContainer.firstChild);
+  const canvas = document.createElement('canvas');
+  await QRCode.toCanvas(canvas, fingerprint.replace(/\s+/g, ''), { width: 200 });
+  qrContainer.appendChild(canvas);
+
+  // Copy button handler
+  document.getElementById('safety-copy-btn')!.onclick = () => {
+    navigator.clipboard.writeText(fingerprint.replace(/\n/g, ' ').trim());
+    showToast('Safety number copied', 'success');
+  };
+
+  // Verify button handler
+  document.getElementById('safety-verify-btn')!.onclick = async () => {
+    if (!currentChat) return;
+    await put(STORES.VERIFICATION, currentChat, {
+      username: currentChat,
+      verified: true,
+      verifiedAt: new Date().toISOString(),
+    });
+    showToast('Contact verified', 'success');
+  };
 
   const modal = document.getElementById('safety-modal')!;
   modal.classList.remove('hidden');

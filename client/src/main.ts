@@ -8,7 +8,7 @@ import { initSettings } from './ui/settings';
 import { getStore, resetStore } from './signal/client';
 import { ab2b64, onIdentityKeyChange } from './signal/store';
 import { generateAndStoreKeys, generateMorePreKeys, rotateSignedPreKeyIfNeeded } from './signal/keys';
-import { clearAll, initEncryption, clearEncryptionKey, upgradeIterationsIfNeeded } from './storage/indexeddb';
+import { clearAll, initEncryption, clearEncryptionKey, upgradeIterationsIfNeeded, remove, STORES } from './storage/indexeddb';
 import { WS_MSG_TYPE } from '../../shared/constants';
 import type { ApiUser, WsServerChatMessage, WsServerDeliveredMessage, WsServerReadReceiptMessage, WsServerPresenceMessage, WsServerDisappearingTimerMessage } from '../../shared/types';
 
@@ -64,12 +64,30 @@ async function enterChat(user: ApiUser, isNewRegistration: boolean): Promise<voi
   document.getElementById('current-user')!.textContent = user.username;
 
   // CRITICAL: Warn user when a contact's identity key changes (MITM detection)
-  onIdentityKeyChange((username: string) => {
+  onIdentityKeyChange(async (username: string) => {
     addSystemMessage(username,
       'WARNING: ' + username + '\'s safety number has changed. ' +
       'This could mean they reinstalled the app, or someone may be ' +
       'intercepting your messages. Verify the safety number before continuing.');
     showToast('Security alert: ' + username + '\'s identity key changed!', 'error');
+
+    // Clear their verification status
+    await remove(STORES.VERIFICATION, username);
+
+    // Show identity change blocking modal
+    const modal = document.getElementById('identity-change-modal')!;
+    const userSpan = document.getElementById('identity-change-user')!;
+    userSpan.textContent = username;
+    modal.classList.remove('hidden');
+
+    document.getElementById('identity-accept-btn')!.onclick = () => {
+      modal.classList.add('hidden');
+    };
+
+    document.getElementById('identity-block-btn')!.onclick = () => {
+      modal.classList.add('hidden');
+      showToast('Contact blocked', 'info');
+    };
   });
 
   await loadContacts();

@@ -1,7 +1,7 @@
 import type { EncryptedValue } from '../../../shared/types';
 
 const DB_NAME = 'signal-web';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 const STORES = {
   IDENTITY_KEY_PAIR: 'identityKeyPair',
@@ -13,6 +13,7 @@ const STORES = {
   CONTACTS: 'contacts',
   MESSAGES: 'messages',
   META: 'meta',
+  VERIFICATION: 'verification',
   CRYPTO_PARAMS: 'cryptoParams', // Unencrypted store for salt etc.
 } as const;
 
@@ -29,6 +30,7 @@ const ENCRYPTED_STORES = new Set<string>([
   STORES.MESSAGES,
   STORES.META,
   STORES.REGISTRATION_ID,
+  STORES.VERIFICATION,
 ]);
 
 let dbInstance: IDBDatabase | null = null;

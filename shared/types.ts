@@ -59,6 +59,14 @@ export interface DbConversationPartner {
   partner_id: number;
 }
 
+export interface DbRefreshToken {
+  id: number;
+  user_id: number;
+  token_hash: string;
+  expires_at: number;
+  created_at: number;
+}
+
 export interface DbMarkDeliveredResult {
   sender_id: number;
 }
@@ -72,6 +80,7 @@ export interface ApiUser {
 
 export interface AuthResponse {
   token: string;
+  refreshToken: string;
   user: ApiUser;
 }
 
@@ -127,6 +136,8 @@ export interface ServerConfig {
   DB_PATH: string;
   BCRYPT_ROUNDS: number;
   JWT_EXPIRY: string;
+  ACCESS_TOKEN_EXPIRY: string;
+  REFRESH_TOKEN_EXPIRY_DAYS: number;
   IS_PRODUCTION: boolean;
   MAX_FAILED_LOGINS: number;
   LOCKOUT_DURATION_MIN: number;

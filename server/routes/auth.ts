@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import config from '../config';
 import { stmt, deleteUser, audit } from '../db';
 import { validateRegister, validateLogin } from '../middleware/validate';
@@ -10,7 +11,7 @@ import { getConnection, isOnline } from '../ws/connections';
 import { createWsTicket } from '../ws/tickets';
 import logger from '../logger';
 import { incr } from '../metrics';
-import type { DbUser } from '../../shared/types';
+import type { DbUser, DbRefreshToken } from '../../shared/types';
 
 const router = express.Router();
 
@@ -35,6 +36,22 @@ function getClientIp(req: Request): string | undefined {
   return req.ip || req.socket.remoteAddress;
 }
 
+function generateRefreshToken(): string {
+  return crypto.randomBytes(48).toString('base64url');
+}
+
+function hashToken(token: string): string {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+function issueRefreshToken(userId: number): string {
+  const token = generateRefreshToken();
+  const hash = hashToken(token);
+  const expiresAt = Math.floor(Date.now() / 1000) + (config.REFRESH_TOKEN_EXPIRY_DAYS * 86400);
+  stmt.createRefreshToken.run(userId, hash, expiresAt);
+  return token;
+}
+
 router.post('/register', authLimiter, ...validateRegister, async (req: Request, res: Response) => {
   const ip = getClientIp(req);
   try {
@@ -53,6 +70,7 @@ router.post('/register', authLimiter, ...validateRegister, async (req: Request, 
     const result = stmt.createUser.run(username, hash);
 
     const token = signToken({ id: result.lastInsertRowid, username });
+    const refreshToken = issueRefreshToken(result.lastInsertRowid as number);
 
     incr('authSuccess');
     audit('register', { userId: result.lastInsertRowid as number, username, ip });
@@ -60,6 +78,7 @@ router.post('/register', authLimiter, ...validateRegister, async (req: Request, 
 
     res.status(201).json({
       token,
+      refreshToken,
       user: { id: result.lastInsertRowid, username },
     });
   } catch (err) {
@@ -118,6 +137,7 @@ router.post('/login', authLimiter, ...validateLogin, async (req: Request, res: R
     }
 
     const token = signToken({ id: user.id, username: user.username });
+    const refreshToken = issueRefreshToken(user.id);
 
     incr('authSuccess');
     audit('login_success', { userId: user.id, username: user.username, ip });
@@ -125,6 +145,7 @@ router.post('/login', authLimiter, ...validateLogin, async (req: Request, res: R
 
     res.json({
       token,
+      refreshToken,
       user: { id: user.id, username: user.username },
     });
   } catch (err) {
@@ -153,6 +174,7 @@ router.delete('/account', authenticateToken, accountDeleteLimiter, async (req: R
     }
 
     closeUserConnection(user.id);
+    stmt.deleteUserRefreshTokens.run(user.id);
     deleteUser(user.id);
     audit('account_deleted', { userId: user.id, username: user.username, ip });
     logger.info({ username: user.username, ip }, 'Account deleted');
@@ -203,6 +225,7 @@ router.put('/password', authenticateToken, authLimiter, async (req: Request, res
 
     const newHash = await bcrypt.hash(newPassword, config.BCRYPT_ROUNDS);
     stmt.updatePassword.run(newHash, user.id);
+    stmt.deleteUserRefreshTokens.run(user.id);
 
     // H1: Close active WebSocket connection after password change
     closeUserConnection(user.id);
@@ -215,6 +238,40 @@ router.put('/password', authenticateToken, authLimiter, async (req: Request, res
     logger.error({ err, ip }, 'Change password error');
     res.status(500).json({ error: 'Password change failed' });
   }
+});
+
+// Refresh access token using a valid refresh token (with rotation)
+router.post('/refresh', (req: Request, res: Response) => {
+  const { refreshToken } = req.body as { refreshToken?: string };
+  if (!refreshToken) {
+    res.status(400).json({ error: 'Refresh token required' });
+    return;
+  }
+  const hash = hashToken(refreshToken);
+  const stored = stmt.getRefreshToken.get(hash) as DbRefreshToken | undefined;
+  if (!stored) {
+    res.status(401).json({ error: 'Invalid or expired refresh token' });
+    return;
+  }
+  // Rotate: delete old token
+  stmt.deleteRefreshToken.run(hash);
+  const user = stmt.getUserById.get(stored.user_id) as { id: number; username: string } | undefined;
+  if (!user) {
+    res.status(401).json({ error: 'User not found' });
+    return;
+  }
+  const accessToken = signToken({ id: user.id, username: user.username });
+  const newRefreshToken = issueRefreshToken(user.id);
+  res.json({ token: accessToken, refreshToken: newRefreshToken, user });
+});
+
+// Logout: invalidate the provided refresh token
+router.post('/logout', authenticateToken, (req: Request, res: Response) => {
+  const { refreshToken } = req.body as { refreshToken?: string };
+  if (refreshToken) {
+    stmt.deleteRefreshToken.run(hashToken(refreshToken));
+  }
+  res.json({ success: true });
 });
 
 // Issue a short-lived one-time ticket for WebSocket connection

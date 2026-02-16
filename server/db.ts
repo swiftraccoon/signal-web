@@ -68,11 +68,21 @@ db.exec(`
     details TEXT
   );
 
+  CREATE TABLE IF NOT EXISTS refresh_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL UNIQUE,
+    expires_at INTEGER NOT NULL,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch())
+  );
+
   -- Indexes for query performance
   CREATE INDEX IF NOT EXISTS idx_messages_recipient_pending ON messages(recipient_id, delivered, timestamp);
   CREATE INDEX IF NOT EXISTS idx_messages_delivered_timestamp ON messages(delivered, timestamp);
   CREATE INDEX IF NOT EXISTS idx_audit_log_timestamp ON audit_log(timestamp);
   CREATE INDEX IF NOT EXISTS idx_audit_log_user ON audit_log(user_id);
+  CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON refresh_tokens(user_id);
+  CREATE INDEX IF NOT EXISTS idx_refresh_tokens_expires ON refresh_tokens(expires_at);
 `);
 
 // Add columns to existing tables if they don't exist (migration-safe)
@@ -168,6 +178,13 @@ const stmt = {
     UNION
     SELECT DISTINCT recipient_id AS partner_id FROM messages WHERE sender_id = ?
   `), 'getConversationPartners'),
+
+  // Refresh tokens
+  createRefreshToken: timedStmt(db.prepare('INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)'), 'createRefreshToken'),
+  getRefreshToken: timedStmt(db.prepare('SELECT * FROM refresh_tokens WHERE token_hash = ? AND expires_at > unixepoch()'), 'getRefreshToken'),
+  deleteRefreshToken: timedStmt(db.prepare('DELETE FROM refresh_tokens WHERE token_hash = ?'), 'deleteRefreshToken'),
+  deleteUserRefreshTokens: timedStmt(db.prepare('DELETE FROM refresh_tokens WHERE user_id = ?'), 'deleteUserRefreshTokens'),
+  purgeExpiredRefreshTokens: timedStmt(db.prepare('DELETE FROM refresh_tokens WHERE expires_at < unixepoch()'), 'purgeExpiredRefreshTokens'),
 };
 
 function audit(event: string, { userId, username, ip, details }: AuditOptions = {}): void {

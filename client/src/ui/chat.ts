@@ -118,7 +118,7 @@ export function initChat(): void {
     if (typingTimeout) clearTimeout(typingTimeout);
     typingTimeout = setTimeout(() => {
       wsSend({ type: WS_MSG_TYPE.TYPING, to: currentChat!, isTyping: false });
-    }, 2000);
+    }, 5000);
   });
 
   // Disappearing messages menu

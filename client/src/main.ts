@@ -10,7 +10,7 @@ import { ab2b64, onIdentityKeyChange } from './signal/store';
 import { generateAndStoreKeys, generateMorePreKeys, rotateSignedPreKeyIfNeeded } from './signal/keys';
 import { clearAll, initEncryption, clearEncryptionKey, upgradeIterationsIfNeeded, remove, STORES } from './storage/indexeddb';
 import { WS_MSG_TYPE } from '../../shared/constants';
-import type { ApiUser, WsServerChatMessage, WsServerDeliveredMessage, WsServerReadReceiptMessage, WsServerPresenceMessage, WsServerDisappearingTimerMessage } from '../../shared/types';
+import type { ApiUser, WsServerChatMessage, WsServerDeliveredMessage, WsServerReadReceiptMessage, WsServerPresenceMessage, WsServerDisappearingTimerMessage, WsServerErrorMessage } from '../../shared/types';
 
 async function init(): Promise<void> {
   initAuth(onAuthSuccess);
@@ -196,6 +196,18 @@ function setupWSHandlers(): void {
 
   on(WS_MSG_TYPE.PREKEY_LOW, async () => {
     await replenishKeys();
+  });
+
+  on(WS_MSG_TYPE.ERROR, (raw) => {
+    const data = raw as WsServerErrorMessage;
+    const friendlyMessages: Record<string, string> = {
+      'Invalid recipient': 'That user does not exist.',
+      'Message too large': 'Your message is too long.',
+      'Rate limit exceeded': 'Slow down! You\'re sending too quickly.',
+      'Recipient not found': 'That user could not be found.',
+    };
+    const msg = friendlyMessages[data.message] || data.message;
+    showToast(msg, 'error');
   });
 
   on('open', () => {

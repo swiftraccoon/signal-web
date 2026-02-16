@@ -4,7 +4,9 @@ import { STORES, get, put, remove, getAll } from './storage/indexeddb';
 let ws: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectDelay = 1000;
+let pingInterval: ReturnType<typeof setInterval> | null = null;
 const MAX_RECONNECT_DELAY = 30000;
+const PING_INTERVAL_MS = 25000;
 const listeners = new Map<string, Set<(data?: unknown) => void>>();
 
 // Offline message queue - messages sent while disconnected
@@ -170,6 +172,14 @@ async function connect(): Promise<void> {
     emit('open');
     showConnectionStatus(true);
 
+    // Start client-side keepalive pings (server pings every 30s, we ping every 25s)
+    if (pingInterval) clearInterval(pingInterval);
+    pingInterval = setInterval(() => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'ping' }));
+      }
+    }, PING_INTERVAL_MS);
+
     // Flush queued messages from IndexedDB
     flushQueue();
   };
@@ -187,13 +197,18 @@ async function connect(): Promise<void> {
 
   ws.onclose = (e: CloseEvent) => {
     ws = null;
+    if (pingInterval) {
+      clearInterval(pingInterval);
+      pingInterval = null;
+    }
     emit('close');
     showConnectionStatus(false);
     // Don't reconnect on auth failure
     if (e.code === 4001 || e.code === 4003) return;
     if (getToken()) {
       reconnectTimer = setTimeout(connect, reconnectDelay);
-      reconnectDelay = Math.min(reconnectDelay * 2, MAX_RECONNECT_DELAY);
+      const jitter = 0.7 + Math.random() * 0.6; // +/-30%
+      reconnectDelay = Math.min(reconnectDelay * 2 * jitter, MAX_RECONNECT_DELAY);
     }
   };
 
@@ -204,6 +219,10 @@ async function connect(): Promise<void> {
 
 function disconnect(): void {
   if (reconnectTimer) clearTimeout(reconnectTimer);
+  if (pingInterval) {
+    clearInterval(pingInterval);
+    pingInterval = null;
+  }
   reconnectDelay = 1000;
   // Clear all retry timers
   for (const [, timer] of retryTimers) {

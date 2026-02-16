@@ -8,6 +8,7 @@ import { MAX_WS_MESSAGE_SIZE, WS_MSG_TYPE } from '../../shared/constants';
 import logger from '../logger';
 import { incr } from '../metrics';
 import { stmt, getConversationPartners } from '../db';
+import { getRedis } from '../redis';
 import type { DbUser, UserRateLimitEntry, WsUser } from '../../shared/types';
 
 // Extend WebSocket with custom properties
@@ -32,6 +33,34 @@ setInterval(() => {
     }
   }
 }, WS_RATE_WINDOW * 10);
+
+// Redis-backed rate limiting with in-memory fallback
+async function checkWsRateLimit(userId: number): Promise<boolean> {
+  const redis = getRedis();
+  if (redis) {
+    try {
+      const key = `wsrl:${userId}`;
+      const count = await redis.incr(key);
+      if (count === 1) {
+        await redis.pexpire(key, WS_RATE_WINDOW);
+      }
+      return count <= WS_RATE_LIMIT;
+    } catch (err) {
+      logger.warn({ err, userId }, 'Redis rate limit check failed, falling back to in-memory');
+      // Fall through to in-memory logic
+    }
+  }
+
+  // In-memory fallback
+  const now = Date.now();
+  let limit = userRateLimits.get(userId);
+  if (!limit || now - limit.windowStart > WS_RATE_WINDOW) {
+    limit = { count: 0, windowStart: now };
+    userRateLimits.set(userId, limit);
+  }
+  limit.count++;
+  return limit.count <= WS_RATE_LIMIT;
+}
 
 function setupWebSocket(server: http.Server): WebSocketServer {
   const wss = new WebSocketServer({
@@ -133,21 +162,15 @@ function setupWebSocket(server: http.Server): WebSocketServer {
     // THEN broadcast presence to partners (so they know you're online)
     broadcastPresence(user.id, user.username, true);
 
-    // C3: Per-userId rate limiting (persists across reconnections)
-    ws.on('message', (data: Buffer | ArrayBuffer | Buffer[]) => {
+    // C3: Per-userId rate limiting (persists across reconnections, Redis-backed with fallback)
+    ws.on('message', async (data: Buffer | ArrayBuffer | Buffer[]) => {
       incr('wsMessagesIn');
-      const now = Date.now();
-      let limit = userRateLimits.get(user.id);
-      if (!limit || now - limit.windowStart > WS_RATE_WINDOW) {
-        limit = { count: 0, windowStart: now };
-        userRateLimits.set(user.id, limit);
-      }
-      limit.count++;
-      if (limit.count > WS_RATE_LIMIT) {
+      const withinLimit = await checkWsRateLimit(user.id);
+      if (!withinLimit) {
         ws.send(JSON.stringify({ type: 'error', message: 'Rate limit exceeded' }));
         return;
       }
-      handleMessage(ws, user, data.toString());
+      await handleMessage(ws, user, data.toString());
     });
 
     ws.on('close', () => {

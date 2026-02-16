@@ -4,6 +4,7 @@ import { stmt } from '../db';
 import { WS_MSG_TYPE } from '../../shared/constants';
 import { incr } from '../metrics';
 import logger from '../logger';
+import { getRedis } from '../redis';
 import type { WsUser, DbUser, DbMarkDeliveredResult } from '../../shared/types';
 
 const MAX_MESSAGE_BODY_SIZE = 50 * 1024; // 50KB explicit body limit
@@ -18,7 +19,29 @@ setInterval(() => {
   }
 }, 30000);
 
-function handleMessage(ws: WebSocket, user: WsUser, data: string): void {
+// Redis-backed replay detection with in-memory fallback
+// Returns true if message is NEW (not a replay), false if it IS a replay
+async function checkReplay(dedupeKey: string): Promise<boolean> {
+  const redis = getRedis();
+  if (redis) {
+    try {
+      const result = await redis.set(dedupeKey, '1', 'PX', MESSAGE_ID_TTL_MS, 'NX');
+      return result === 'OK'; // 'OK' = new key (not replay), null = key exists (replay)
+    } catch (err) {
+      logger.warn({ err, dedupeKey }, 'Redis replay check failed, falling back to in-memory');
+      // Fall through to in-memory logic
+    }
+  }
+
+  // In-memory fallback
+  if (recentMessageIds.has(dedupeKey)) {
+    return false; // replay
+  }
+  recentMessageIds.set(dedupeKey, Date.now());
+  return true; // new message
+}
+
+async function handleMessage(ws: WebSocket, user: WsUser, data: string): Promise<void> {
   let msg: Record<string, unknown>;
   try {
     msg = JSON.parse(data) as Record<string, unknown>;
@@ -29,7 +52,7 @@ function handleMessage(ws: WebSocket, user: WsUser, data: string): void {
 
   switch (msg.type) {
     case WS_MSG_TYPE.MESSAGE:
-      handleChatMessage(ws, user, msg);
+      await handleChatMessage(ws, user, msg);
       return;
     case WS_MSG_TYPE.TYPING:
       handleTyping(user, msg);
@@ -49,7 +72,7 @@ function handleMessage(ws: WebSocket, user: WsUser, data: string): void {
   }
 }
 
-function handleChatMessage(ws: WebSocket, sender: WsUser, msg: Record<string, unknown>): void {
+async function handleChatMessage(ws: WebSocket, sender: WsUser, msg: Record<string, unknown>): Promise<void> {
   if (!msg.to || typeof msg.to !== 'string') {
     sendError(ws, 'Invalid recipient');
     return;
@@ -75,7 +98,8 @@ function handleChatMessage(ws: WebSocket, sender: WsUser, msg: Record<string, un
     return;
   }
   const dedupeKey = `${sender.id}:${msg.id}`;
-  if (recentMessageIds.has(dedupeKey)) {
+  const isNew = await checkReplay(dedupeKey);
+  if (!isNew) {
     sendError(ws, 'Duplicate message ID');
     return;
   }
@@ -104,9 +128,6 @@ function handleChatMessage(ws: WebSocket, sender: WsUser, msg: Record<string, un
     sendError(ws, 'Failed to send message');
     return;
   }
-
-  // C4: Track this message ID after successful storage
-  recentMessageIds.set(dedupeKey, Date.now());
 
   incr('messagesStored');
 

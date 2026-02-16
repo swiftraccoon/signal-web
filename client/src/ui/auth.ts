@@ -12,6 +12,42 @@ export function initAuth(callback: (user: ApiUser, isNew: boolean, password: str
   const submitBtn = document.getElementById('auth-submit') as HTMLButtonElement;
   const switchLink = document.getElementById('auth-switch') as HTMLAnchorElement;
 
+  const passwordInput = document.getElementById('auth-password') as HTMLInputElement;
+  const passwordReqs = document.getElementById('password-requirements') as HTMLDivElement;
+  const reqLength = document.getElementById('pw-req-length') as HTMLDivElement;
+  const reqUpper = document.getElementById('pw-req-upper') as HTMLDivElement;
+  const reqLower = document.getElementById('pw-req-lower') as HTMLDivElement;
+  const reqNumber = document.getElementById('pw-req-number') as HTMLDivElement;
+
+  function updatePasswordRequirements(): void {
+    const val = passwordInput.value;
+    const checks: Array<{ el: HTMLDivElement; met: boolean }> = [
+      { el: reqLength, met: val.length >= 12 },
+      { el: reqUpper, met: /[A-Z]/.test(val) },
+      { el: reqLower, met: /[a-z]/.test(val) },
+      { el: reqNumber, met: /[0-9]/.test(val) },
+    ];
+    for (const { el, met } of checks) {
+      const icon = el.querySelector('.pw-req-icon') as HTMLSpanElement;
+      if (met) {
+        el.classList.add('met');
+        icon.textContent = '\u2713';
+      } else {
+        el.classList.remove('met');
+        icon.textContent = '\u2717';
+      }
+    }
+  }
+
+  passwordInput.addEventListener('input', () => {
+    if (isRegisterMode) {
+      passwordReqs.classList.remove('hidden');
+      updatePasswordRequirements();
+    } else {
+      passwordReqs.classList.add('hidden');
+    }
+  });
+
   switchLink.addEventListener('click', (e) => {
     e.preventDefault();
     isRegisterMode = !isRegisterMode;
@@ -20,6 +56,13 @@ export function initAuth(callback: (user: ApiUser, isNew: boolean, password: str
     switchLink.previousSibling!.textContent = isRegisterMode
       ? 'Already have an account? '
       : "Don't have an account? ";
+
+    if (isRegisterMode && passwordInput.value.length > 0) {
+      passwordReqs.classList.remove('hidden');
+      updatePasswordRequirements();
+    } else {
+      passwordReqs.classList.add('hidden');
+    }
   });
 
   form.addEventListener('submit', async (e) => {

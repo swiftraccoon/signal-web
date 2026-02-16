@@ -16,6 +16,12 @@
         <form id="auth-form">
           <input type="text" id="auth-username" placeholder="Username" autocomplete="username" required>
           <input type="password" id="auth-password" placeholder="Password" autocomplete="current-password" required>
+          <div id="password-requirements" class="password-requirements hidden">
+            <div class="pw-req" id="pw-req-length"><span class="pw-req-icon">&#x2717;</span> 12+ characters</div>
+            <div class="pw-req" id="pw-req-upper"><span class="pw-req-icon">&#x2717;</span> Uppercase letter</div>
+            <div class="pw-req" id="pw-req-lower"><span class="pw-req-icon">&#x2717;</span> Lowercase letter</div>
+            <div class="pw-req" id="pw-req-number"><span class="pw-req-icon">&#x2717;</span> Number</div>
+          </div>
           <button type="submit" id="auth-submit" class="btn-primary">Log In</button>
         </form>
         <p class="auth-toggle">

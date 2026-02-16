@@ -150,6 +150,11 @@ body {
   text-decoration: none;
 }
 
+/* Password Requirements */
+.password-requirements { margin-top: 8px; font-size: 0.85em; text-align: left; }
+.pw-req { padding: 2px 0; color: var(--text-muted); }
+.pw-req.met { color: var(--success); }
+
 /* Chat Layout */
 #chat-view {
   display: flex;

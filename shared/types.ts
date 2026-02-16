@@ -23,6 +23,7 @@ export interface DbSignedPreKey {
   key_id: number;
   public_key: string;
   signature: string;
+  uploaded_at?: number | null;
 }
 
 export interface DbOneTimePreKey {
@@ -93,6 +94,7 @@ export interface SignedPreKeyPublic {
   keyId: number;
   publicKey: string;
   signature: string;
+  uploadedAt?: number | null;
 }
 
 export interface PreKeyBundleUpload {
@@ -234,6 +236,7 @@ export type WsServerMessage =
   | WsServerReadReceiptMessage
   | WsServerDisappearingTimerMessage
   | WsServerPrekeyLowMessage
+  | WsServerPrekeyStaleMessage
   | WsServerErrorMessage
   | WsServerPresenceMessage;
 
@@ -279,6 +282,11 @@ export interface WsServerDisappearingTimerMessage {
 export interface WsServerPrekeyLowMessage {
   type: typeof WS_MSG_TYPE.PREKEY_LOW;
   remaining: number;
+}
+
+export interface WsServerPrekeyStaleMessage {
+  type: typeof WS_MSG_TYPE.PREKEY_STALE;
+  signedPreKeyAge: number;
 }
 
 export interface WsServerErrorMessage {

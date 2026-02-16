@@ -162,6 +162,18 @@ function setupWebSocket(server: http.Server): WebSocketServer {
     // THEN broadcast presence to partners (so they know you're online)
     broadcastPresence(user.id, user.username, true);
 
+    // Check signed pre-key freshness
+    const signedPreKey = stmt.getSignedPreKey.get(user.id) as { uploaded_at?: number } | undefined;
+    if (signedPreKey?.uploaded_at) {
+      const ageSec = Math.floor(Date.now() / 1000) - signedPreKey.uploaded_at;
+      if (ageSec > 14 * 24 * 3600) { // > 14 days
+        ws.send(JSON.stringify({
+          type: WS_MSG_TYPE.PREKEY_STALE,
+          signedPreKeyAge: ageSec,
+        }));
+      }
+    }
+
     // C3: Per-userId rate limiting (persists across reconnections, Redis-backed with fallback)
     ws.on('message', async (data: Buffer | ArrayBuffer | Buffer[]) => {
       incr('wsMessagesIn');

@@ -89,6 +89,8 @@ db.exec(`
 try { db.exec("ALTER TABLE users ADD COLUMN password_changed_at TEXT DEFAULT (datetime('now'))"); } catch { /* column exists */ }
 try { db.exec('ALTER TABLE users ADD COLUMN failed_login_attempts INTEGER DEFAULT 0'); } catch { /* column exists */ }
 try { db.exec('ALTER TABLE users ADD COLUMN locked_until TEXT DEFAULT NULL'); } catch { /* column exists */ }
+try { db.exec("ALTER TABLE one_time_pre_keys ADD COLUMN uploaded_at INTEGER DEFAULT (unixepoch())"); } catch { /* column exists */ }
+try { db.exec("ALTER TABLE signed_pre_keys ADD COLUMN uploaded_at INTEGER DEFAULT (unixepoch())"); } catch { /* column exists */ }
 
 // Instrumented statement wrapper - tracks query timing
 interface TimedStatement {
@@ -203,6 +205,7 @@ const getPreKeyBundle: (userId: number) => PreKeyBundleResponse | null = db.tran
       keyId: signedPreKey.key_id,
       publicKey: signedPreKey.public_key,
       signature: signedPreKey.signature,
+      uploadedAt: signedPreKey.uploaded_at ?? null,
     },
     preKey: oneTimePreKey ? {
       keyId: oneTimePreKey.key_id,

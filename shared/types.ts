@@ -143,6 +143,7 @@ export interface ServerConfig {
   LOCKOUT_DURATION_MIN: number;
   REDIS_URL: string | null;
   ALLOWED_WS_ORIGINS: string[];
+  AUDIT_SECRET: string | null;
 }
 
 export interface JwtTokenPayload {

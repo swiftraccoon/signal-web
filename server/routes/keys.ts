@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import { authenticateToken } from '../middleware/auth';
-import { stmt, getPreKeyBundle, uploadBundle, audit } from '../db';
+import { stmt, getPreKeyBundle, uploadBundle } from '../db';
+import { audit } from '../audit';
 import { PREKEY_LOW_THRESHOLD, WS_MSG_TYPE } from '../../shared/constants';
 import { getConnection, isOnline } from '../ws/connections';
 import logger from '../logger';

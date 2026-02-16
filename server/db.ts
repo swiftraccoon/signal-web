@@ -5,7 +5,7 @@ import { incr, DB_SLOW_THRESHOLD_MS } from './metrics';
 import type {
   DbIdentityKey, DbSignedPreKey, DbOneTimePreKey,
   DbConversationPartner,
-  AuditOptions, PreKeyBundleUpload,
+  PreKeyBundleUpload,
   PreKeyBundleResponse,
 } from '../shared/types';
 
@@ -187,14 +187,6 @@ const stmt = {
   purgeExpiredRefreshTokens: timedStmt(db.prepare('DELETE FROM refresh_tokens WHERE expires_at < unixepoch()'), 'purgeExpiredRefreshTokens'),
 };
 
-function audit(event: string, { userId, username, ip, details }: AuditOptions = {}): void {
-  try {
-    stmt.insertAudit.run(event, userId ?? null, username ?? null, ip ?? null, details ?? null);
-  } catch (err) {
-    logger.error({ err, event }, 'Failed to write audit log');
-  }
-}
-
 const getPreKeyBundle: (userId: number) => PreKeyBundleResponse | null = db.transaction((userId: number): PreKeyBundleResponse | null => {
   const identity = stmt.getIdentityKey.get(userId) as DbIdentityKey | undefined;
   if (!identity) return null;
@@ -239,4 +231,4 @@ function getConversationPartners(userId: number): number[] {
   return (stmt.getConversationPartners.all(userId, userId) as DbConversationPartner[]).map(r => r.partner_id);
 }
 
-export { db, stmt, getPreKeyBundle, uploadBundle, deleteUser, audit, getConversationPartners };
+export { db, stmt, getPreKeyBundle, uploadBundle, deleteUser, getConversationPartners };

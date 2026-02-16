@@ -50,6 +50,11 @@ const config: ServerConfig = {
     : isProduction
       ? [] // Must be configured in production
       : [`http://localhost:${parseInt(process.env.PORT ?? '', 10) || 3000}`, `http://127.0.0.1:${parseInt(process.env.PORT ?? '', 10) || 3000}`],
+  AUDIT_SECRET: process.env.AUDIT_SECRET || null,
 };
+
+if (isProduction && !process.env.AUDIT_SECRET) {
+  console.warn('WARNING: AUDIT_SECRET not set. Audit log entries will not be HMAC-signed.');
+}
 
 export = config;

@@ -1,4 +1,4 @@
-import { api, setToken, setCurrentUser } from './api';
+import { api, setToken, setRefreshToken, setCurrentUser } from './api';
 import { connect, disconnect, on } from './ws';
 import { initAuth, showAuth, hideAuth } from './ui/auth';
 import { initContacts, loadContacts, addContact, getActiveContact, incrementUnread, setUserOnline, setUserOffline, setOnlineUsers } from './ui/contacts';
@@ -206,6 +206,7 @@ function onContactSelected(username: string): void {
 function logout(): void {
   disconnect();
   setToken(null);
+  setRefreshToken(null);
   setCurrentUser(null);
   resetStore();
   clearEncryptionKey();

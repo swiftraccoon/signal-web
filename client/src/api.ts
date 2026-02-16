@@ -7,6 +7,7 @@ import type {
 // This prevents XSS-based token theft. Users re-authenticate on page
 // reload, which also re-derives the storage encryption key.
 let token: string | null = null;
+let refreshToken: string | null = null;
 let currentUser: ApiUser | null = null;
 
 function setToken(t: string | null): void {
@@ -17,6 +18,10 @@ function getToken(): string | null {
   return token;
 }
 
+function setRefreshToken(t: string | null): void {
+  refreshToken = t;
+}
+
 function setCurrentUser(u: ApiUser | null): void {
   currentUser = u;
 }
@@ -25,13 +30,39 @@ function getCurrentUser(): ApiUser | null {
   return currentUser;
 }
 
+async function fetchWithRefresh(url: string, options: RequestInit): Promise<Response> {
+  let res = await fetch(url, options);
+
+  if (res.status === 401 && refreshToken) {
+    // Attempt token refresh
+    const refreshRes = await fetch('/api/auth/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    });
+
+    if (refreshRes.ok) {
+      const data = await refreshRes.json() as { token: string; refreshToken: string };
+      token = data.token;
+      refreshToken = data.refreshToken;
+
+      // Retry original request with new token
+      const newHeaders = new Headers(options.headers);
+      newHeaders.set('Authorization', `Bearer ${token}`);
+      res = await fetch(url, { ...options, headers: newHeaders });
+    }
+  }
+
+  return res;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const res = await fetch(path, {
+  const res = await fetchWithRefresh(path, {
     ...options,
     headers: { ...headers, ...(options.headers as Record<string, string> | undefined) },
   });
@@ -98,4 +129,4 @@ const api = {
     request<WsTicketResponse>('/api/auth/ws-ticket', { method: 'POST' }),
 };
 
-export { api, setToken, getToken, setCurrentUser, getCurrentUser };
+export { api, setToken, getToken, setRefreshToken, setCurrentUser, getCurrentUser };

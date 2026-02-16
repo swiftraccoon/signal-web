@@ -12,8 +12,13 @@ let messageHistory: Record<string, ChatMessage[]> = {};
 let disappearingTimers: Record<string, number> = {};
 let disappearIntervals: Record<string, ReturnType<typeof setInterval>> = {};
 let renderScheduled = false; // rAF debounce flag
-let messageIdLookup = new Map<string, string>(); // msgId -> username for O(1) status lookups
-const MAX_ID_LOOKUP_SIZE = 2000; // prevent unbounded growth
+// Persistent msgId -> username mapping backed by IndexedDB (MESSAGE_STATUS store)
+async function trackMessageId(msgId: string, username: string): Promise<void> {
+  await put(STORES.MESSAGE_STATUS, msgId, username);
+}
+async function getMessageUsername(msgId: string): Promise<string | undefined> {
+  return (await get(STORES.MESSAGE_STATUS, msgId)) as string | undefined;
+}
 
 // Track failed messages for retry UI
 interface FailedMessageInfo {
@@ -263,15 +268,15 @@ export async function handleIncomingMessage(data: IncomingMessageData): Promise<
 }
 
 // Handle delivery confirmation from server
-export function handleDelivered(data: WsServerDeliveredMessage): void {
-  updateMessageStatus(data.id, 'delivered');
+export async function handleDelivered(data: WsServerDeliveredMessage): Promise<void> {
+  await updateMessageStatus(data.id, 'delivered');
 }
 
 // Handle read receipts from contact
-export function handleReadReceipt(data: WsServerReadReceiptMessage): void {
+export async function handleReadReceipt(data: WsServerReadReceiptMessage): Promise<void> {
   if (!data.messageIds || !data.from) return;
   for (const msgId of data.messageIds) {
-    updateMessageStatus(msgId, 'read');
+    await updateMessageStatus(msgId, 'read');
   }
 }
 
@@ -338,9 +343,9 @@ function updateDisappearingMenuActive(): void {
   }
 }
 
-function updateMessageStatus(msgId: string, status: 'delivered' | 'read'): void {
-  // O(1) lookup using messageIdLookup map
-  const username = messageIdLookup.get(msgId);
+async function updateMessageStatus(msgId: string, status: 'delivered' | 'read'): Promise<void> {
+  // O(1) lookup using IndexedDB-backed message status store
+  const username = await getMessageUsername(msgId);
   if (username) {
     const msgs = messageHistory[username];
     if (msgs) {
@@ -357,7 +362,7 @@ function updateMessageStatus(msgId: string, status: 'delivered' | 'read'): void 
       }
     }
   }
-  // Fallback: linear scan if not in lookup (e.g. loaded from storage)
+  // Fallback: linear scan if not in IndexedDB (e.g. loaded from storage)
   for (const uname in messageHistory) {
     const msgs = messageHistory[uname]!;
     for (const msg of msgs) {
@@ -365,7 +370,7 @@ function updateMessageStatus(msgId: string, status: 'delivered' | 'read'): void 
         const order: Record<string, number> = { sent: 0, delivered: 1, read: 2 };
         if ((order[status] || 0) > (order[msg.status || 'sent'] || 0)) {
           msg.status = status;
-          messageIdLookup.set(msgId, uname);
+          await trackMessageId(msgId, uname);
           putDebounced(STORES.MESSAGES, uname, messageHistory[uname]!);
           if (currentChat === uname) scheduleRender(uname);
         }
@@ -411,14 +416,9 @@ function addMessage(username: string, msg: ChatMessage): void {
   if (!messageHistory[username]) messageHistory[username] = [];
   messageHistory[username]!.push(msg);
 
-  // Track in lookup map for O(1) status updates
+  // Track in IndexedDB for persistent O(1) status updates
   if (msg.id) {
-    messageIdLookup.set(msg.id, username);
-    // Evict oldest entries to prevent unbounded memory growth
-    if (messageIdLookup.size > MAX_ID_LOOKUP_SIZE) {
-      const first = messageIdLookup.keys().next().value;
-      if (first) messageIdLookup.delete(first);
-    }
+    trackMessageId(msg.id, username);
   }
 
   // Persist to IndexedDB (keep last 500 messages per contact)

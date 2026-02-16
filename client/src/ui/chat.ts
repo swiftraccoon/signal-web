@@ -93,7 +93,16 @@ export function initChat(): void {
       updateLastMessage(currentChat, preview, msg.time);
     } catch (err) {
       console.error('Encrypt/send error:', err);
-      showToast('Failed to send message: ' + (err as Error).message, 'error');
+      const errorMsg = (err as Error).message || '';
+      let friendlyMsg = "Couldn't send your message. Please try again.";
+      if (errorMsg.includes('network') || errorMsg.includes('fetch')) {
+        friendlyMsg = "Can't reach the server — retrying...";
+      } else if (errorMsg.includes('encrypt') || errorMsg.includes('key') || errorMsg.includes('session')) {
+        friendlyMsg = "Encryption error — try re-opening the chat.";
+      } else if (errorMsg.includes('not found') || errorMsg.includes('recipient')) {
+        friendlyMsg = "That user could not be found.";
+      }
+      showToast(friendlyMsg, 'error');
     } finally {
       setLoading(sendBtn, false, 'Send');
       input.disabled = false;

@@ -53,8 +53,15 @@ async function onAuthSuccess(user: ApiUser, isNewRegistration: boolean, password
 
     await enterChat(user, isNewRegistration);
   } catch (err) {
-    showToast('Setup failed: ' + (err as Error).message, 'error');
     console.error('Auth success handler error:', err);
+    const errorMsg = (err as Error).message || '';
+    let friendlyMsg = 'Setup failed. Please try again.';
+    if (errorMsg.includes('key') || errorMsg.includes('crypto') || errorMsg.includes('encrypt')) {
+      friendlyMsg = 'Encryption key setup failed — try clearing browser data.';
+    } else if (errorMsg.includes('network') || errorMsg.includes('fetch')) {
+      friendlyMsg = "Can't reach the server — check your connection.";
+    }
+    showToast(friendlyMsg, 'error');
   } finally {
     setLoading(authBtn, false, originalText);
   }

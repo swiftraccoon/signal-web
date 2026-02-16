@@ -83,6 +83,17 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_audit_log_user ON audit_log(user_id);
   CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON refresh_tokens(user_id);
   CREATE INDEX IF NOT EXISTS idx_refresh_tokens_expires ON refresh_tokens(expires_at);
+
+  CREATE TABLE IF NOT EXISTS conversation_settings (
+    user_id_1 INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_id_2 INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    disappearing_timer_ms INTEGER DEFAULT 0,
+    updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+    PRIMARY KEY (user_id_1, user_id_2),
+    CHECK (user_id_1 < user_id_2)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_messages_expires ON messages(expires_at) WHERE expires_at IS NOT NULL;
 `);
 
 // Add columns to existing tables if they don't exist (migration-safe)
@@ -91,6 +102,7 @@ try { db.exec('ALTER TABLE users ADD COLUMN failed_login_attempts INTEGER DEFAUL
 try { db.exec('ALTER TABLE users ADD COLUMN locked_until TEXT DEFAULT NULL'); } catch { /* column exists */ }
 try { db.exec("ALTER TABLE one_time_pre_keys ADD COLUMN uploaded_at INTEGER DEFAULT (unixepoch())"); } catch { /* column exists */ }
 try { db.exec("ALTER TABLE signed_pre_keys ADD COLUMN uploaded_at INTEGER DEFAULT (unixepoch())"); } catch { /* column exists */ }
+try { db.exec('ALTER TABLE messages ADD COLUMN expires_at INTEGER'); } catch { /* column exists */ }
 
 // Instrumented statement wrapper - tracks query timing
 interface TimedStatement {
@@ -187,6 +199,16 @@ const stmt = {
   deleteRefreshToken: timedStmt(db.prepare('DELETE FROM refresh_tokens WHERE token_hash = ?'), 'deleteRefreshToken'),
   deleteUserRefreshTokens: timedStmt(db.prepare('DELETE FROM refresh_tokens WHERE user_id = ?'), 'deleteUserRefreshTokens'),
   purgeExpiredRefreshTokens: timedStmt(db.prepare('DELETE FROM refresh_tokens WHERE expires_at < unixepoch()'), 'purgeExpiredRefreshTokens'),
+
+  // Disappearing messages / conversation settings
+  upsertConversationTimer: timedStmt(db.prepare(`
+    INSERT INTO conversation_settings (user_id_1, user_id_2, disappearing_timer_ms, updated_at)
+    VALUES (MIN(?, ?), MAX(?, ?), ?, unixepoch())
+    ON CONFLICT(user_id_1, user_id_2) DO UPDATE SET disappearing_timer_ms=excluded.disappearing_timer_ms, updated_at=excluded.updated_at
+  `), 'upsertConversationTimer'),
+  getConversationTimer: timedStmt(db.prepare('SELECT disappearing_timer_ms FROM conversation_settings WHERE user_id_1 = MIN(?, ?) AND user_id_2 = MAX(?, ?)'), 'getConversationTimer'),
+  storeMessageWithExpiry: timedStmt(db.prepare('INSERT INTO messages (sender_id, recipient_id, type, body, expires_at) VALUES (?, ?, ?, ?, ?)'), 'storeMessageWithExpiry'),
+  purgeExpiredMessages: timedStmt(db.prepare('DELETE FROM messages WHERE expires_at IS NOT NULL AND expires_at < unixepoch()'), 'purgeExpiredMessages'),
 };
 
 const getPreKeyBundle: (userId: number) => PreKeyBundleResponse | null = db.transaction((userId: number): PreKeyBundleResponse | null => {

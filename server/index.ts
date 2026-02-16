@@ -170,6 +170,7 @@ const purgeInterval = setInterval(() => {
     stmt.purgeDelivered.run();
     stmt.purgeStale.run();
     stmt.purgeExpiredRefreshTokens.run();
+    stmt.purgeExpiredMessages.run();
     logger.info('Message purge completed');
   } catch (err) {
     logger.error({ err }, 'Purge error');

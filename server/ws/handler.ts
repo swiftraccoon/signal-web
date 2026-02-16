@@ -118,10 +118,16 @@ async function handleChatMessage(ws: WebSocket, sender: WsUser, msg: Record<stri
 
   const timestamp = new Date().toISOString();
 
+  // Check conversation disappearing timer
+  const timerResult = stmt.getConversationTimer.get(sender.id, recipient.id, sender.id, recipient.id) as { disappearing_timer_ms: number } | undefined;
+  const expiresAt = timerResult?.disappearing_timer_ms
+    ? Math.floor(Date.now() / 1000) + Math.floor(timerResult.disappearing_timer_ms / 1000)
+    : null;
+
   // M10: Wrap DB insert in try-catch (recipient could be deleted between lookup and insert)
   let storedMsgId: number | bigint;
   try {
-    const result = stmt.storeMessage.run(sender.id, recipient.id, message.type, message.body);
+    const result = stmt.storeMessageWithExpiry.run(sender.id, recipient.id, message.type, message.body, expiresAt);
     storedMsgId = result.lastInsertRowid;
   } catch (err) {
     logger.error({ err, senderId: sender.id, recipientId: recipient.id }, 'Failed to store message');
@@ -233,6 +239,9 @@ function handleDisappearingTimer(sender: WsUser, msg: Record<string, unknown>): 
       timer: msg.timer,
     });
   }
+
+  // Persist timer server-side (msg.timer is in seconds, column is milliseconds)
+  stmt.upsertConversationTimer.run(sender.id, recipient.id, sender.id, recipient.id, (msg.timer as number) * 1000);
 }
 
 function send(ws: WebSocket, data: unknown): void {

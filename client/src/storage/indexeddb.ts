@@ -35,6 +35,7 @@ const ENCRYPTED_STORES = new Set<string>([
 
 let dbInstance: IDBDatabase | null = null;
 let encryptionKey: CryptoKey | null = null; // CryptoKey for AES-GCM
+let reencryptionInProgress = false; // Prevents concurrent re-encryption attempts
 
 // Write batching - coalesce rapid writes to the same store+key
 interface PendingWrite {
@@ -346,59 +347,88 @@ async function clearAll(): Promise<void> {
 }
 
 // C1: Re-encrypt all stores with a new password (called after password change)
+// Two-phase approach: Phase 1 reads/re-encrypts in memory, Phase 2 writes to IndexedDB.
+// On Phase 1 failure: no changes made to IndexedDB.
+// On Phase 2 failure: old encryption key is restored so unmodified stores remain readable.
+// Phase 2 uses a single atomic multi-store IndexedDB transaction for all writes.
 async function reEncryptAllStores(oldPassword: string, newPassword: string, username: string): Promise<void> {
-  // 1. Derive old key (should match current encryptionKey)
-  const { salt: oldSalt, iterations: oldIter } = await getOrCreateCryptoParams(username);
-  const oldKey = await deriveStorageKey(oldPassword, oldSalt, oldIter);
-
-  // 2. Decrypt all encrypted stores using old key
-  const savedEncryptionKey = encryptionKey;
-  encryptionKey = oldKey;
-
-  const decryptedData = new Map<string, { keys: IDBValidKey[]; values: unknown[] }>();
-  for (const storeName of ENCRYPTED_STORES) {
-    const data = await getAll(storeName);
-    decryptedData.set(storeName, data);
+  if (reencryptionInProgress) {
+    throw new Error('Re-encryption already in progress');
   }
+  reencryptionInProgress = true;
 
-  // 3. Generate new salt and derive new key
-  const newSalt = crypto.getRandomValues(new Uint8Array(32));
-  const newIter = PBKDF2_ITERATIONS;
-  const newKey = await deriveStorageKey(newPassword, newSalt, newIter);
+  // Flush any pending debounced writes before we snapshot the encryption key,
+  // so they commit with the current key and are included in our Phase 1 read.
+  await flushPendingWrites();
 
-  // 4. Re-encrypt all data with new key
-  encryptionKey = newKey;
-  const db = await open();
+  const savedEncryptionKey = encryptionKey;
 
-  for (const [storeName, data] of decryptedData) {
-    // Clear the store
+  try {
+    // --- Phase 1 (Read-only): Decrypt all data, re-encrypt in memory ---
+    // No IndexedDB writes happen in this phase. If anything fails, the DB is unchanged.
+
+    // 1a. Derive old key and decrypt all stores
+    const { salt: oldSalt, iterations: oldIter } = await getOrCreateCryptoParams(username);
+    const oldKey = await deriveStorageKey(oldPassword, oldSalt, oldIter);
+    encryptionKey = oldKey;
+
+    const decryptedData = new Map<string, { keys: IDBValidKey[]; values: unknown[] }>();
+    for (const storeName of ENCRYPTED_STORES) {
+      const data = await getAll(storeName);
+      decryptedData.set(storeName, data);
+    }
+
+    // 1b. Generate new salt, derive new key, and re-encrypt all data in memory
+    const newSalt = crypto.getRandomValues(new Uint8Array(32));
+    const newIter = PBKDF2_ITERATIONS;
+    const saltKey = `salt:${username}`;
+    const iterKey = `iterations:${username}`;
+    const newKey = await deriveStorageKey(newPassword, newSalt, newIter);
+    encryptionKey = newKey;
+
+    const reEncryptedData = new Map<string, { keys: IDBValidKey[]; encryptedValues: EncryptedValue[] }>();
+    for (const [storeName, data] of decryptedData) {
+      const encryptedValues: EncryptedValue[] = [];
+      for (let i = 0; i < data.values.length; i++) {
+        encryptedValues.push(await encryptValue(data.values[i]));
+      }
+      reEncryptedData.set(storeName, { keys: data.keys, encryptedValues });
+    }
+
+    // --- Phase 2 (Write): Atomically clear and rewrite all stores ---
+    // Uses a single multi-store IndexedDB transaction so all writes succeed or
+    // all are rolled back by the browser. If this fails, we restore the old
+    // encryption key so existing (unchanged) data remains readable.
+
+    const db = await open();
+    const storeNames = [...Array.from(reEncryptedData.keys()), STORES.CRYPTO_PARAMS];
     await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(storeName, 'readwrite');
-      tx.objectStore(storeName).clear();
+      const tx = db.transaction(storeNames, 'readwrite');
+      for (const [storeName, data] of reEncryptedData) {
+        const store = tx.objectStore(storeName);
+        store.clear();
+        for (let i = 0; i < data.keys.length; i++) {
+          store.put(data.encryptedValues[i], data.keys[i]);
+        }
+      }
+      // Also update salt and iteration count atomically
+      const cryptoStore = tx.objectStore(STORES.CRYPTO_PARAMS);
+      cryptoStore.put(uint8ToBase64(newSalt), saltKey);
+      cryptoStore.put(newIter, iterKey);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
 
-    // Write re-encrypted values
-    for (let i = 0; i < data.keys.length; i++) {
-      const encrypted = await encryptValue(data.values[i]);
-      await new Promise<void>((resolve, reject) => {
-        const tx = db.transaction(storeName, 'readwrite');
-        tx.objectStore(storeName).put(encrypted, data.keys[i]);
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-      });
-    }
+    // Success: encryptionKey is now set to the new key
+  } catch (error) {
+    // Restore old encryption key so existing data remains readable.
+    // On Phase 1 failure the DB is unchanged; on Phase 2 failure the atomic
+    // transaction was rolled back by IndexedDB, so the DB is also unchanged.
+    encryptionKey = savedEncryptionKey;
+    throw error;
+  } finally {
+    reencryptionInProgress = false;
   }
-
-  // 5. Update stored salt and iteration count
-  const saltKey = `salt:${username}`;
-  const iterKey = `iterations:${username}`;
-  await writeCryptoParam(db, saltKey, uint8ToBase64(newSalt));
-  await writeCryptoParam(db, iterKey, newIter);
-
-  // encryptionKey is now set to the new key
-  void savedEncryptionKey; // discard old reference
 }
 
 // M5: Upgrade PBKDF2 iteration count for existing users

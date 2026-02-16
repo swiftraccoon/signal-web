@@ -6,6 +6,19 @@ import { exportKeys, importKeys } from '../signal/store';
 
 let onAccountDeleted: (() => void) | null = null;
 
+function setLoading(btn: HTMLButtonElement, loading: boolean, originalText: string): void {
+  if (loading) {
+    btn.classList.add('btn-loading');
+    btn.textContent = '';
+    const spinner = document.createElement('span');
+    spinner.className = 'spinner';
+    btn.appendChild(spinner);
+  } else {
+    btn.classList.remove('btn-loading');
+    btn.textContent = originalText;
+  }
+}
+
 export function initSettings(deleteCallback: () => void): void {
   onAccountDeleted = deleteCallback;
 
@@ -43,7 +56,10 @@ export function initSettings(deleteCallback: () => void): void {
   });
 
   // Change password form
-  document.getElementById('change-password-form')!.addEventListener('submit', async (e) => {
+  const changePwForm = document.getElementById('change-password-form') as HTMLFormElement;
+  const changePwBtn = changePwForm.querySelector('button[type="submit"]') as HTMLButtonElement;
+
+  changePwForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const currentPw = (document.getElementById('current-password') as HTMLInputElement).value;
     const newPw = (document.getElementById('new-password') as HTMLInputElement).value;
@@ -63,6 +79,7 @@ export function initSettings(deleteCallback: () => void): void {
       return;
     }
 
+    setLoading(changePwBtn, true, 'Change Password');
     try {
       await api.changePassword(currentPw, newPw);
       // C1: Re-encrypt local IndexedDB with new password-derived key
@@ -75,6 +92,8 @@ export function initSettings(deleteCallback: () => void): void {
       (e.target as HTMLFormElement).reset();
     } catch (err) {
       showToast((err as Error).message, 'error');
+    } finally {
+      setLoading(changePwBtn, false, 'Change Password');
     }
   });
 

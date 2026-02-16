@@ -12,6 +12,19 @@ import { clearAll, initEncryption, clearEncryptionKey, upgradeIterationsIfNeeded
 import { WS_MSG_TYPE } from '../../shared/constants';
 import type { ApiUser, WsServerChatMessage, WsServerDeliveredMessage, WsServerReadReceiptMessage, WsServerPresenceMessage, WsServerDisappearingTimerMessage, WsServerErrorMessage } from '../../shared/types';
 
+function setLoading(btn: HTMLButtonElement, loading: boolean, originalText: string): void {
+  if (loading) {
+    btn.classList.add('btn-loading');
+    btn.textContent = '';
+    const spinner = document.createElement('span');
+    spinner.className = 'spinner';
+    btn.appendChild(spinner);
+  } else {
+    btn.classList.remove('btn-loading');
+    btn.textContent = originalText;
+  }
+}
+
 async function init(): Promise<void> {
   initAuth(onAuthSuccess);
   initContacts(onContactSelected);
@@ -28,6 +41,9 @@ async function init(): Promise<void> {
 }
 
 async function onAuthSuccess(user: ApiUser, isNewRegistration: boolean, password: string): Promise<void> {
+  const authBtn = document.getElementById('auth-submit') as HTMLButtonElement;
+  const originalText = authBtn.textContent || 'Log In';
+  setLoading(authBtn, true, originalText);
   try {
     // Derive storage encryption key from password
     await initEncryption(password, user.username);
@@ -39,6 +55,8 @@ async function onAuthSuccess(user: ApiUser, isNewRegistration: boolean, password
   } catch (err) {
     showToast('Setup failed: ' + (err as Error).message, 'error');
     console.error('Auth success handler error:', err);
+  } finally {
+    setLoading(authBtn, false, originalText);
   }
 }
 

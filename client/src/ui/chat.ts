@@ -12,6 +12,19 @@ let messageHistory: Record<string, ChatMessage[]> = {};
 let disappearingTimers: Record<string, number> = {};
 let disappearIntervals: Record<string, ReturnType<typeof setInterval>> = {};
 let renderScheduled = false; // rAF debounce flag
+
+function setLoading(btn: HTMLButtonElement, loading: boolean, originalText: string): void {
+  if (loading) {
+    btn.classList.add('btn-loading');
+    btn.textContent = '';
+    const spinner = document.createElement('span');
+    spinner.className = 'spinner';
+    btn.appendChild(spinner);
+  } else {
+    btn.classList.remove('btn-loading');
+    btn.textContent = originalText;
+  }
+}
 // Persistent msgId -> username mapping backed by IndexedDB (MESSAGE_STATUS store)
 async function trackMessageId(msgId: string, username: string): Promise<void> {
   await put(STORES.MESSAGE_STATUS, msgId, username);
@@ -33,6 +46,7 @@ const URL_REGEX = /https?:\/\/[^\s<>"')\]]+/g;
 export function initChat(): void {
   const form = document.getElementById('message-form') as HTMLFormElement;
   const input = document.getElementById('message-input') as HTMLInputElement;
+  const sendBtn = form.querySelector('button[type="submit"]') as HTMLButtonElement;
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -44,6 +58,7 @@ export function initChat(): void {
 
     input.value = '';
     input.disabled = true;
+    setLoading(sendBtn, true, 'Send');
 
     try {
       const encrypted = await encryptMessage(currentChat, contact.id, text);
@@ -80,6 +95,7 @@ export function initChat(): void {
       console.error('Encrypt/send error:', err);
       showToast('Failed to send message: ' + (err as Error).message, 'error');
     } finally {
+      setLoading(sendBtn, false, 'Send');
       input.disabled = false;
       input.focus();
     }

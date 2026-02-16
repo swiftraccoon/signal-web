@@ -257,8 +257,9 @@ export async function handleIncomingMessage(data: IncomingMessageData): Promise<
     return { from: data.from, text: plaintext };
   } catch (err) {
     console.error('Decrypt error:', err);
+    // Don't ACK — leave the message pending on the server so it can be retried on next login
     addMessage(data.from, {
-      text: '[Unable to decrypt message]',
+      text: '[Decryption failed \u2014 will retry on next login]',
       sent: false,
       time: data.timestamp || new Date().toISOString(),
       error: true,

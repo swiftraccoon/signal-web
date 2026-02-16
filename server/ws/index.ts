@@ -16,6 +16,7 @@ import type { DbUser, UserRateLimitEntry, WsUser } from '../../shared/types';
 interface SignalWebSocket extends WsWebSocket {
   _isAlive: boolean;
   _userId: number;
+  _username: string;
 }
 
 const WS_RATE_WINDOW = 1000;
@@ -87,6 +88,8 @@ function setupWebSocket(server: http.Server): WebSocketServer {
       const ws = client as SignalWebSocket;
       if (ws._isAlive === false) {
         logger.debug({ userId: ws._userId }, 'Terminating stale WS connection (no pong)');
+        removeConnection(ws._userId, ws);
+        broadcastPresence(ws._userId, ws._username, false);
         ws.terminate();
         continue;
       }
@@ -160,6 +163,7 @@ function setupWebSocket(server: http.Server): WebSocketServer {
 
     ws._isAlive = true;
     ws._userId = user.id;
+    ws._username = user.username;
 
     ws.on('pong', () => {
       ws._isAlive = true;

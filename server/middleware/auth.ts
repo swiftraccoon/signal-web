@@ -17,6 +17,7 @@ function authenticateToken(req: Request, res: Response, next: NextFunction): voi
     const payload = jwt.verify(token, config.JWT_SECRET, {
       algorithms: [config.JWT_ALGORITHM as jwt.Algorithm],
       audience: 'signal-web',
+      issuer: 'signal-web',
     }) as JwtTokenPayload;
 
     // Check if password was changed after this token was issued

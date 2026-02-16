@@ -34,8 +34,8 @@ app.use(helmet({
       scriptSrc: ["'self'"],
       styleSrc: ["'self'"],
       connectSrc: config.IS_PRODUCTION
-        ? ["'self'"]  // 'self' covers wss: on same origin in production
-        : ["'self'", "ws://localhost:*"],
+        ? ["'self'", "wss:"]
+        : ["'self'", "ws://localhost:*", "wss://localhost:*"],
       imgSrc: ["'self'"],
       fontSrc: ["'self'"],
       objectSrc: ["'none'"],

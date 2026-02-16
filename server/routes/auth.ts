@@ -20,11 +20,13 @@ const DUMMY_HASH = bcrypt.hashSync('dummy-password-for-timing', config.BCRYPT_RO
 // M8: Add audience claim to JWT for cross-service isolation
 function signToken(payload: { id: number | bigint; username: string }): string {
   return jwt.sign(
-    { id: Number(payload.id), username: payload.username, aud: 'signal-web' },
+    { id: Number(payload.id), username: payload.username },
     config.JWT_SECRET,
     {
       algorithm: config.JWT_ALGORITHM as jwt.Algorithm,
       expiresIn: config.JWT_EXPIRY,
+      audience: 'signal-web',
+      issuer: 'signal-web',
     } as jwt.SignOptions,
   );
 }

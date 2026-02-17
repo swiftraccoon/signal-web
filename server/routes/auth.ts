@@ -1,10 +1,10 @@
 import express, { Request, Response } from 'express';
-import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import config from '../config';
 import { stmt, deleteUser } from '../db';
 import { audit } from '../audit';
+import { hash as hashPassword, verify as verifyPassword, needsRehash } from '../hasher';
 import { validateRegister, validateLogin } from '../middleware/validate';
 import { authLimiter, accountDeleteLimiter } from '../middleware/rateLimiter';
 import { authenticateToken } from '../middleware/auth';
@@ -16,8 +16,11 @@ import type { DbUser, DbRefreshToken } from '../../shared/types';
 
 const router = express.Router();
 
-// Dummy hash for constant-time login (prevents timing-based user enumeration)
-const DUMMY_HASH = bcrypt.hashSync('dummy-password-for-timing', config.BCRYPT_ROUNDS);
+// Dummy hash for constant-time verification (prevents timing-based user enumeration)
+let DUMMY_HASH: string;
+(async () => {
+  DUMMY_HASH = await hashPassword('dummy-password-for-timing');
+})();
 
 // M8: Add audience claim to JWT for cross-service isolation
 function signToken(payload: { id: number | bigint; username: string; token_version: number }): string {
@@ -60,8 +63,8 @@ router.post('/register', authLimiter, ...validateRegister, async (req: Request, 
 
     const existing = stmt.getUserByUsername.get(username) as DbUser | undefined;
 
-    // M1: Always run bcrypt even if username exists (prevents timing-based enumeration)
-    const hash = await bcrypt.hash(password, config.BCRYPT_ROUNDS);
+    // Always hash even if username exists (prevents timing-based enumeration)
+    const hash = await hashPassword(password);
 
     if (existing) {
       res.status(409).json({ error: 'Username already taken' });
@@ -110,9 +113,9 @@ router.post('/login', authLimiter, ...validateLogin, async (req: Request, res: R
       stmt.resetFailedLogins.run(user.id);
     }
 
-    // Always run bcrypt.compare to prevent timing-based user enumeration
-    const hash = user ? user.password : DUMMY_HASH;
-    const valid = await bcrypt.compare(password, hash);
+    // Always verify to prevent timing-based user enumeration
+    const storedHash = user ? user.password : DUMMY_HASH;
+    const valid = await verifyPassword(password, storedHash);
 
     if (!user || !valid) {
       incr('authFailure');
@@ -135,6 +138,13 @@ router.post('/login', authLimiter, ...validateLogin, async (req: Request, res: R
     // Successful login - reset failed attempts
     if (user.failed_login_attempts > 0) {
       stmt.resetFailedLogins.run(user.id);
+    }
+
+    // Opportunistic rehash: upgrade bcrypt -> Argon2id on successful login
+    if (needsRehash(user.password)) {
+      const newHash = await hashPassword(password);
+      stmt.updatePassword.run(newHash, user.id);
+      logger.info({ username: user.username }, 'Password hash upgraded to Argon2id');
     }
 
     const token = signToken({ id: user.id, username: user.username, token_version: user.token_version });
@@ -165,9 +175,9 @@ router.delete('/account', authenticateToken, accountDeleteLimiter, async (req: R
     }
 
     const user = stmt.getUserByUsername.get(req.user!.username) as DbUser | undefined;
-    // Always run bcrypt even if user not found (constant-time)
-    const hash = user ? user.password : DUMMY_HASH;
-    const valid = await bcrypt.compare(password, hash);
+    // Always verify even if user not found (constant-time)
+    const storedHash = user ? user.password : DUMMY_HASH;
+    const valid = await verifyPassword(password, storedHash);
 
     if (!user || !valid) {
       res.status(401).json({ error: 'Invalid password' });
@@ -186,7 +196,6 @@ router.delete('/account', authenticateToken, accountDeleteLimiter, async (req: R
   }
 });
 
-// M9: Add authLimiter to password change endpoint
 router.put('/password', authenticateToken, authLimiter, async (req: Request, res: Response) => {
   const ip = getClientIp(req);
   try {
@@ -196,9 +205,9 @@ router.put('/password', authenticateToken, authLimiter, async (req: Request, res
       return;
     }
 
-    // H4: Enforce max password length (bcrypt truncates at 72 bytes)
-    if (newPassword.length < 12 || newPassword.length > 72) {
-      res.status(400).json({ error: 'Password must be 12-72 characters' });
+    // Argon2id has no practical length limit, but cap at 128 for DoS prevention
+    if (newPassword.length < 12 || newPassword.length > 128) {
+      res.status(400).json({ error: 'Password must be 12-128 characters' });
       return;
     }
     if (!/[a-z]/.test(newPassword)) {
@@ -215,16 +224,15 @@ router.put('/password', authenticateToken, authLimiter, async (req: Request, res
     }
 
     const user = stmt.getUserByUsername.get(req.user!.username) as DbUser | undefined;
-    // Always run bcrypt even if user not found (constant-time)
-    const hash = user ? user.password : DUMMY_HASH;
-    const valid = await bcrypt.compare(currentPassword, hash);
+    const storedHash = user ? user.password : DUMMY_HASH;
+    const valid = await verifyPassword(currentPassword, storedHash);
 
     if (!user || !valid) {
       res.status(401).json({ error: 'Current password is incorrect' });
       return;
     }
 
-    const newHash = await bcrypt.hash(newPassword, config.BCRYPT_ROUNDS);
+    const newHash = await hashPassword(newPassword);
     stmt.updatePassword.run(newHash, user.id);
     stmt.deleteUserRefreshTokens.run(user.id);
 

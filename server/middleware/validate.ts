@@ -18,8 +18,8 @@ const validateRegister: RequestHandler[] = [
     .matches(/^[a-zA-Z0-9_]+$/)
     .withMessage('Username can only contain letters, numbers, and underscores'),
   body('password')
-    .isLength({ min: 12, max: 72 })
-    .withMessage('Password must be 12-72 characters')
+    .isLength({ min: 12, max: 128 })
+    .withMessage('Password must be 12-128 characters')
     .matches(/[a-z]/).withMessage('Password must include a lowercase letter')
     .matches(/[A-Z]/).withMessage('Password must include an uppercase letter')
     .matches(/[0-9]/).withMessage('Password must include a number'),

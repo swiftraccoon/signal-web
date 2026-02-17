@@ -20,9 +20,9 @@ const router = express.Router();
 const DUMMY_HASH = bcrypt.hashSync('dummy-password-for-timing', config.BCRYPT_ROUNDS);
 
 // M8: Add audience claim to JWT for cross-service isolation
-function signToken(payload: { id: number | bigint; username: string }): string {
+function signToken(payload: { id: number | bigint; username: string; token_version: number }): string {
   return jwt.sign(
-    { id: Number(payload.id), username: payload.username },
+    { id: Number(payload.id), username: payload.username, token_version: payload.token_version },
     config.JWT_SECRET,
     {
       algorithm: config.JWT_ALGORITHM as jwt.Algorithm,
@@ -70,7 +70,7 @@ router.post('/register', authLimiter, ...validateRegister, async (req: Request, 
 
     const result = stmt.createUser.run(username, hash);
 
-    const token = signToken({ id: result.lastInsertRowid, username });
+    const token = signToken({ id: result.lastInsertRowid, username, token_version: 1 });
     const refreshToken = issueRefreshToken(result.lastInsertRowid as number);
 
     incr('authSuccess');
@@ -137,7 +137,7 @@ router.post('/login', authLimiter, ...validateLogin, async (req: Request, res: R
       stmt.resetFailedLogins.run(user.id);
     }
 
-    const token = signToken({ id: user.id, username: user.username });
+    const token = signToken({ id: user.id, username: user.username, token_version: user.token_version });
     const refreshToken = issueRefreshToken(user.id);
 
     incr('authSuccess');
@@ -256,12 +256,12 @@ router.post('/refresh', (req: Request, res: Response) => {
   }
   // Rotate: delete old token
   stmt.deleteRefreshToken.run(hash);
-  const user = stmt.getUserById.get(stored.user_id) as { id: number; username: string } | undefined;
+  const user = stmt.getUserById.get(stored.user_id) as { id: number; username: string; token_version: number } | undefined;
   if (!user) {
     res.status(401).json({ error: 'User not found' });
     return;
   }
-  const accessToken = signToken({ id: user.id, username: user.username });
+  const accessToken = signToken({ id: user.id, username: user.username, token_version: user.token_version });
   const newRefreshToken = issueRefreshToken(user.id);
   res.json({ token: accessToken, refreshToken: newRefreshToken, user });
 });

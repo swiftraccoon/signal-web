@@ -10,6 +10,7 @@ export interface DbUser {
   password_changed_at: string | null;
   failed_login_attempts: number;
   locked_until: string | null;
+  token_version: number;
 }
 
 export interface DbIdentityKey {
@@ -152,6 +153,7 @@ export interface ServerConfig {
 export interface JwtTokenPayload {
   id: number;
   username: string;
+  token_version?: number;
   iat?: number;
   exp?: number;
 }

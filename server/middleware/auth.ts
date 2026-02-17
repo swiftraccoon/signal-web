@@ -20,14 +20,15 @@ function authenticateToken(req: Request, res: Response, next: NextFunction): voi
       issuer: 'signal-web',
     }) as JwtTokenPayload;
 
-    // Check if password was changed after this token was issued
+    // Check token_version — immediate revocation on password change
     const user = stmt.getUserByUsername.get(payload.username) as DbUser | undefined;
-    if (user && user.password_changed_at) {
-      const changedAt = Math.floor(new Date(user.password_changed_at + 'Z').getTime() / 1000);
-      if (payload.iat && payload.iat < changedAt) {
-        res.status(401).json({ error: 'Token invalidated by password change' });
-        return;
-      }
+    if (!user) {
+      res.status(401).json({ error: 'User not found' });
+      return;
+    }
+    if (payload.token_version !== undefined && payload.token_version !== user.token_version) {
+      res.status(401).json({ error: 'Token revoked' });
+      return;
     }
 
     req.user = { id: payload.id, username: payload.username };

@@ -23,7 +23,8 @@ db.exec(`
     created_at TEXT DEFAULT (datetime('now')),
     password_changed_at TEXT DEFAULT (datetime('now')),
     failed_login_attempts INTEGER DEFAULT 0,
-    locked_until TEXT DEFAULT NULL
+    locked_until TEXT DEFAULT NULL,
+    token_version INTEGER DEFAULT 1
   );
 
   CREATE TABLE IF NOT EXISTS identity_keys (
@@ -106,6 +107,7 @@ try { db.exec("ALTER TABLE one_time_pre_keys ADD COLUMN uploaded_at INTEGER DEFA
 try { db.exec("ALTER TABLE signed_pre_keys ADD COLUMN uploaded_at INTEGER DEFAULT (unixepoch())"); } catch { /* column exists */ }
 try { db.exec('ALTER TABLE messages ADD COLUMN expires_at INTEGER'); } catch { /* column exists */ }
 try { db.exec('ALTER TABLE messages ADD COLUMN original_id TEXT'); } catch { /* column exists */ }
+try { db.exec('ALTER TABLE users ADD COLUMN token_version INTEGER DEFAULT 1'); } catch { /* column exists */ }
 
 // Instrumented statement wrapper - tracks query timing
 interface TimedStatement {
@@ -149,9 +151,9 @@ function trackQuery(name: string, startTime: number): void {
 const stmt = {
   createUser: timedStmt(db.prepare('INSERT INTO users (username, password) VALUES (?, ?)'), 'createUser'),
   getUserByUsername: timedStmt(db.prepare('SELECT * FROM users WHERE username = ?'), 'getUserByUsername'),
-  getUserById: timedStmt(db.prepare('SELECT id, username, created_at FROM users WHERE id = ?'), 'getUserById'),
+  getUserById: timedStmt(db.prepare('SELECT id, username, created_at, token_version FROM users WHERE id = ?'), 'getUserById'),
   searchUsers: timedStmt(db.prepare("SELECT id, username FROM users WHERE username LIKE ? ESCAPE '\\' LIMIT 20"), 'searchUsers'),
-  updatePassword: timedStmt(db.prepare("UPDATE users SET password = ?, password_changed_at = datetime('now') WHERE id = ?"), 'updatePassword'),
+  updatePassword: timedStmt(db.prepare("UPDATE users SET password = ?, password_changed_at = datetime('now'), token_version = token_version + 1 WHERE id = ?"), 'updatePassword'),
 
   // Account lockout (atomic increment + return to prevent TOCTOU race)
   incrementFailedLoginsAndGet: timedStmt(db.prepare('UPDATE users SET failed_login_attempts = failed_login_attempts + 1 WHERE id = ? RETURNING failed_login_attempts'), 'incrementFailedLoginsAndGet'),

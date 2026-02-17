@@ -5,6 +5,7 @@ import {
 } from '@privacyresearch/libsignal-protocol-typescript';
 import { SignalProtocolStore, b642ab, zeroArrayBuffer } from './store';
 import { pad, unpad } from './padding';
+import { storeKeyLogProof } from './keyLogGossip';
 import { api } from '../api';
 
 const DEVICE_ID = 1;
@@ -85,6 +86,11 @@ async function ensureSession(username: string, userId: number): Promise<void> {
         keyId: bundle.preKey.keyId,
         publicKey: b642ab(bundle.preKey.publicKey),
       };
+    }
+
+    // Cache key transparency proof for gossip verification
+    if (bundle.keyLogProof) {
+      storeKeyLogProof(userId, bundle.keyLogProof);
     }
 
     const builder = new SessionBuilder(s, address);

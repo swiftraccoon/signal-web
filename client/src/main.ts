@@ -10,6 +10,7 @@ import { ab2b64, onIdentityKeyChange } from './signal/store';
 import { generateAndStoreKeys, generateMorePreKeys, rotateSignedPreKeyIfNeeded } from './signal/keys';
 import { unsealMessage, verifySenderCertificate, setServerPublicKey } from './signal/sealed';
 import { clearSenderCertCache } from './signal/senderCertCache';
+import { setOwnKeyLogHash, verifyGossipHash, clearKeyLogGossip } from './signal/keyLogGossip';
 import { clearAll, initEncryption, clearEncryptionKey, upgradeIterationsIfNeeded, remove, STORES } from './storage/indexeddb';
 import { showOnboardingIfNew } from './ui/onboarding';
 import { WS_MSG_TYPE } from '../../shared/constants';
@@ -86,6 +87,16 @@ async function enterChat(user: ApiUser, isNewRegistration: boolean): Promise<voi
       await api.uploadBundle(bundle);
       showToast('Keys regenerated', 'success');
     }
+  }
+
+  // Fetch our own key log hash for gossip
+  try {
+    const keyLog = await api.getKeyLog(user.id);
+    if (keyLog.length > 0) {
+      setOwnKeyLogHash(user.id, keyLog[keyLog.length - 1]!.entryHash);
+    }
+  } catch {
+    // Non-critical — gossip will just be unavailable
   }
 
   hideAuth();
@@ -199,13 +210,26 @@ async function handleSealedIncoming(
       return;
     }
 
-    const { senderCert, message } = await unsealMessage(envelope, identityKeyPair.privKey);
+    const unsealed = await unsealMessage(envelope, identityKeyPair.privKey);
+    const { senderCert, message } = unsealed;
 
     // Verify the sender certificate was signed by our server
     const certPayload = await verifySenderCertificate(senderCert);
     if (!certPayload) {
       console.error('Sealed message: invalid or expired sender certificate');
       return;
+    }
+
+    // Gossip verification: check sender's key log hash for split-view attacks
+    if (unsealed.gossipHash) {
+      const gossipResult = await verifyGossipHash(certPayload.userId, unsealed.gossipHash);
+      if (!gossipResult.consistent) {
+        console.error('KEY TRANSPARENCY WARNING:', gossipResult.details);
+        addSystemMessage(certPayload.username,
+          'WARNING: Key transparency check failed for ' + certPayload.username +
+          '. The server may be presenting different key histories. Verify safety numbers.');
+        showToast('Security alert: key transparency mismatch for ' + certPayload.username, 'error');
+      }
     }
 
     // Process the inner Signal ciphertext through normal message handling
@@ -311,6 +335,7 @@ function logout(): void {
   setCurrentUser(null);
   resetStore();
   clearSenderCertCache();
+  clearKeyLogGossip();
   clearEncryptionKey();
   clearAll();
   showAuth();

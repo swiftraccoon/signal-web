@@ -18,7 +18,7 @@ async function importX25519Public(raw: ArrayBuffer): Promise<CryptoKey> {
 
 // Generate ephemeral X25519 key pair
 async function generateEphemeralKeyPair(): Promise<CryptoKeyPair> {
-  return crypto.subtle.generateKey({ name: 'X25519' }, false, ['deriveBits']);
+  return crypto.subtle.generateKey({ name: 'X25519' }, false, ['deriveBits']) as Promise<CryptoKeyPair>;
 }
 
 // Derive shared secret via ECDH, then expand with HKDF-SHA256
@@ -42,7 +42,7 @@ async function deriveSymmetricKey(
   // HKDF-SHA256: expand into AES-256-GCM key
   // Salt is empty (ephemeral ECDH already provides randomness via the ephemeral key)
   const aesKey = await crypto.subtle.deriveKey(
-    { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(32), info },
+    { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(32) as BufferSource, info: info as BufferSource },
     hkdfKey,
     { name: 'AES-GCM', length: 256 },
     false,
@@ -65,6 +65,7 @@ export interface SealedEnvelope {
 interface SealedPayload {
   senderCert: SenderCertificate;
   message: { type: number; body: string };
+  gossipHash?: string; // sender's own key log hash for split-view detection
 }
 
 const SEALED_SENDER_VERSION = 1;
@@ -82,6 +83,7 @@ export async function sealMessage(
   recipientIdentityKey: string,
   senderCert: SenderCertificate,
   encryptedMessage: { type: number; body: string },
+  gossipHash?: string,
 ): Promise<SealedEnvelope> {
   // The recipient's identity key is a Signal key (Curve25519), stored as base64.
   // Signal keys have a 0x05 prefix byte for the public key format.
@@ -106,6 +108,9 @@ export async function sealMessage(
     senderCert,
     message: encryptedMessage,
   };
+  if (gossipHash) {
+    payload.gossipHash = gossipHash;
+  }
   const payloadBytes = new TextEncoder().encode(JSON.stringify(payload));
 
   // Encrypt with AES-256-GCM

@@ -3,6 +3,7 @@ import QRCode from 'qrcode';
 import { encryptMessage, decryptMessage, getStore } from '../signal/client';
 import { sealMessage } from '../signal/sealed';
 import { getSenderCertificate } from '../signal/senderCertCache';
+import { getOwnKeyLogHash } from '../signal/keyLogGossip';
 import { send as wsSend, on as wsOn, requeueMessage } from '../ws';
 import { getContactInfo, updateLastMessage } from './contacts';
 import { showToast } from './notifications';
@@ -78,7 +79,8 @@ export function initChat(): void {
           const { ab2b64 } = await import('../signal/store');
           const recipientKeyB64 = ab2b64(recipientIdentityKey);
           const cert = await getSenderCertificate();
-          const envelope = await sealMessage(recipientKeyB64, cert, encrypted);
+          const gossipHash = getOwnKeyLogHash() ?? undefined;
+          const envelope = await sealMessage(recipientKeyB64, cert, encrypted, gossipHash);
           wsSend({
             type: WS_MSG_TYPE.SEALED_MESSAGE,
             recipientId: contact.id,

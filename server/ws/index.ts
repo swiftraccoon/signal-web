@@ -40,11 +40,11 @@ const userRateLimits = new Map<string, UserRateLimitEntry>();
 setInterval(() => {
   const now = Date.now();
   for (const [key, limit] of userRateLimits) {
-    if (now - limit.windowStart > WS_RATE_WINDOW * 10) {
+    if (now - limit.windowStart > WS_RATE_WINDOW * 2) {
       userRateLimits.delete(key);
     }
   }
-}, WS_RATE_WINDOW * 10);
+}, WS_RATE_WINDOW * 2);
 
 // Redis-backed rate limiting with in-memory fallback (per message type)
 async function checkWsRateLimit(userId: number, msgType: string): Promise<boolean> {

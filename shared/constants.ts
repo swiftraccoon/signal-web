@@ -1,5 +1,6 @@
 export const WS_MSG_TYPE = {
   MESSAGE: 'message',
+  SEALED_MESSAGE: 'sealed_message',
   DELIVERED: 'delivered',
   STORED: 'stored',
   PREKEY_LOW: 'prekey_low',

@@ -53,6 +53,9 @@ async function handleMessage(ws: WebSocket, user: WsUser, msg: Record<string, un
     case WS_MSG_TYPE.MESSAGE:
       await handleChatMessage(ws, user, msg);
       return;
+    case WS_MSG_TYPE.SEALED_MESSAGE:
+      await handleSealedMessage(ws, user, msg);
+      return;
     case WS_MSG_TYPE.DISAPPEARING_TIMER:
       handleDisappearingTimer(user, msg);
       return;
@@ -149,24 +152,110 @@ async function handleChatMessage(ws: WebSocket, sender: WsUser, msg: Record<stri
   }
 }
 
-function handleAck(user: WsUser, msg: Record<string, unknown>): void {
-  // Client acknowledges receipt of a message - now we can mark it delivered
-  if (!msg.dbId || typeof msg.dbId !== 'number') return;
-  // Atomically mark delivered and get actual sender_id from DB (prevents spoofing)
-  const result = stmt.markDeliveredAndGetSender.get(msg.dbId, user.id) as DbMarkDeliveredResult | undefined;
-  if (!result) return; // Not their message, already delivered, or not found
-  incr('messagesDelivered');
+async function handleSealedMessage(ws: WebSocket, sender: WsUser, msg: Record<string, unknown>): Promise<void> {
+  // Validate recipient ID
+  const recipientId = msg.recipientId;
+  if (typeof recipientId !== 'number' || recipientId < 1) {
+    sendError(ws, 'Invalid recipient');
+    return;
+  }
 
-  // Notify the actual sender using DB-stored original_id (not client-supplied msg.originalId)
-  if (result.original_id && isOnline(result.sender_id)) {
-    const senderWs = getConnection(result.sender_id);
-    if (senderWs) {
-      send(senderWs, {
-        type: WS_MSG_TYPE.DELIVERED,
-        id: result.original_id,
+  // Validate envelope
+  const envelope = msg.envelope as { version?: unknown; ephemeralKey?: unknown; iv?: unknown; ciphertext?: unknown } | undefined;
+  if (!envelope || typeof envelope.ephemeralKey !== 'string' || typeof envelope.iv !== 'string'
+      || typeof envelope.ciphertext !== 'string' || typeof envelope.version !== 'number') {
+    sendError(ws, 'Invalid sealed envelope');
+    return;
+  }
+
+  // Size check — sealed envelopes must be under 50KB
+  if (envelope.ciphertext.length > MAX_MESSAGE_BODY_SIZE) {
+    sendError(ws, 'Sealed message too large');
+    return;
+  }
+
+  // Replay detection on sealed messages
+  if (!msg.id || typeof msg.id !== 'string' || msg.id.length > 64) {
+    sendError(ws, 'Invalid message ID');
+    return;
+  }
+  const dedupeKey = `sealed:${sender.id}:${msg.id}`;
+  const isNew = await checkReplay(dedupeKey);
+  if (!isNew) {
+    sendError(ws, 'Duplicate message ID');
+    return;
+  }
+
+  // Verify recipient exists
+  const recipient = stmt.getUserById.get(recipientId) as Pick<DbUser, 'id' | 'username'> | undefined;
+  if (!recipient) {
+    sendError(ws, 'Recipient not found');
+    return;
+  }
+
+  // Prevent self-messaging
+  if (recipient.id === sender.id) {
+    sendError(ws, 'Cannot send messages to yourself');
+    return;
+  }
+
+  const timestamp = new Date().toISOString();
+  const envelopeJson = JSON.stringify(envelope);
+
+  // Store sealed message — server has NO sender_id column
+  let storedMsgId: number | bigint;
+  try {
+    const result = stmt.storeSealedMessage.run(recipientId, envelopeJson, null);
+    storedMsgId = result.lastInsertRowid;
+  } catch (err) {
+    logger.error({ err, recipientId }, 'Failed to store sealed message');
+    sendError(ws, 'Failed to send message');
+    return;
+  }
+
+  incr('messagesStored');
+
+  // Relay to recipient if online (no delivery notification for sealed messages)
+  if (isOnline(recipientId)) {
+    const recipientWs = getConnection(recipientId);
+    if (recipientWs) {
+      send(recipientWs, {
+        type: WS_MSG_TYPE.SEALED_MESSAGE,
+        envelope,
+        timestamp,
+        dbId: storedMsgId,
       });
     }
   }
+
+  // ACK to sender (using generic STORED, does not reveal recipient info)
+  send(ws, { type: WS_MSG_TYPE.STORED, id: msg.id, timestamp });
+}
+
+function handleAck(user: WsUser, msg: Record<string, unknown>): void {
+  // Client acknowledges receipt of a message - now we can mark it delivered
+  if (!msg.dbId || typeof msg.dbId !== 'number') return;
+
+  // Try regular messages first (has sender_id for delivery notification)
+  const result = stmt.markDeliveredAndGetSender.get(msg.dbId, user.id) as DbMarkDeliveredResult | undefined;
+  if (result) {
+    incr('messagesDelivered');
+    // Notify the actual sender using DB-stored original_id (not client-supplied msg.originalId)
+    if (result.original_id && isOnline(result.sender_id)) {
+      const senderWs = getConnection(result.sender_id);
+      if (senderWs) {
+        send(senderWs, {
+          type: WS_MSG_TYPE.DELIVERED,
+          id: result.original_id,
+        });
+      }
+    }
+    return;
+  }
+
+  // Try sealed messages (no sender_id — no delivery notification)
+  stmt.markSealedDelivered.run(msg.dbId, user.id);
+  // No delivery notification for sealed messages — server doesn't know the sender
 }
 
 // Valid disappearing timer values (seconds)

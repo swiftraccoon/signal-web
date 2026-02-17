@@ -1,7 +1,7 @@
 import type {
   ApiUser, AuthResponse, PreKeyBundleUpload, PreKeyBundleResponse,
-  PreKeyPublic, KeyCountResponse, PendingMessage, WsTicketResponse,
-  SenderCertificate, ServerKeyResponse,
+  PreKeyPublic, KeyCountResponse, PendingMessage, PendingSealedMessage,
+  WsTicketResponse, SenderCertificate, ServerKeyResponse,
 } from '../../shared/types';
 
 // Token is kept in memory only -- never persisted to localStorage.
@@ -113,6 +113,9 @@ const api = {
 
   getPendingMessages: () =>
     request<PendingMessage[]>('/api/messages/pending'),
+
+  getPendingSealedMessages: () =>
+    request<PendingSealedMessage[]>('/api/messages/pending-sealed'),
 
   deleteAccount: (password: string) =>
     request<{ success: boolean }>('/api/auth/account', {

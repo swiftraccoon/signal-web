@@ -96,6 +96,19 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_messages_expires ON messages(expires_at) WHERE expires_at IS NOT NULL;
+
+  -- Sealed sender messages: server never sees who sent them
+  CREATE TABLE IF NOT EXISTS sealed_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    recipient_id INTEGER NOT NULL REFERENCES users(id),
+    envelope TEXT NOT NULL,
+    timestamp TEXT DEFAULT (datetime('now')),
+    delivered INTEGER DEFAULT 0,
+    expires_at INTEGER
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_sealed_messages_recipient ON sealed_messages(recipient_id, delivered, timestamp);
+  CREATE INDEX IF NOT EXISTS idx_sealed_messages_expires ON sealed_messages(expires_at) WHERE expires_at IS NOT NULL;
 `);
 
 // Add columns to existing tables if they don't exist (migration-safe)
@@ -206,6 +219,14 @@ const stmt = {
   getConversationTimer: timedStmt(db.prepare('SELECT disappearing_timer_ms FROM conversation_settings WHERE user_id_1 = MIN(?, ?) AND user_id_2 = MAX(?, ?)'), 'getConversationTimer'),
   storeMessageWithExpiry: timedStmt(db.prepare('INSERT INTO messages (sender_id, recipient_id, type, body, expires_at, original_id) VALUES (?, ?, ?, ?, ?, ?)'), 'storeMessageWithExpiry'),
   purgeExpiredMessages: timedStmt(db.prepare('DELETE FROM messages WHERE expires_at IS NOT NULL AND expires_at < unixepoch()'), 'purgeExpiredMessages'),
+
+  // Sealed sender messages
+  storeSealedMessage: timedStmt(db.prepare('INSERT INTO sealed_messages (recipient_id, envelope, expires_at) VALUES (?, ?, ?)'), 'storeSealedMessage'),
+  getPendingSealedMessages: timedStmt(db.prepare('SELECT id, envelope, timestamp FROM sealed_messages WHERE recipient_id = ? AND delivered = 0 ORDER BY timestamp'), 'getPendingSealedMessages'),
+  markSealedDelivered: timedStmt(db.prepare('UPDATE sealed_messages SET delivered = 1 WHERE id = ? AND recipient_id = ? AND delivered = 0'), 'markSealedDelivered'),
+  purgeSealedDelivered: timedStmt(db.prepare("DELETE FROM sealed_messages WHERE delivered = 1 AND timestamp < datetime('now', '-1 hour')"), 'purgeSealedDelivered'),
+  purgeSealedStale: timedStmt(db.prepare("DELETE FROM sealed_messages WHERE delivered = 0 AND timestamp < datetime('now', '-7 days')"), 'purgeSealedStale'),
+  purgeSealedExpired: timedStmt(db.prepare('DELETE FROM sealed_messages WHERE expires_at IS NOT NULL AND expires_at < unixepoch()'), 'purgeSealedExpired'),
 };
 
 const getPreKeyBundle: (userId: number) => PreKeyBundleResponse | null = db.transaction((userId: number): PreKeyBundleResponse | null => {
@@ -246,6 +267,7 @@ const deleteUser: (userId: number) => void = db.transaction((userId: number): vo
   db.prepare('DELETE FROM signed_pre_keys WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM identity_keys WHERE user_id = ?').run(userId);
   db.prepare('DELETE FROM messages WHERE sender_id = ? OR recipient_id = ?').run(userId, userId);
+  db.prepare('DELETE FROM sealed_messages WHERE recipient_id = ?').run(userId);
   db.prepare('DELETE FROM users WHERE id = ?').run(userId);
 });
 

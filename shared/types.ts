@@ -120,6 +120,17 @@ export interface PendingMessage {
   dbId: number;
 }
 
+export interface PendingSealedMessage {
+  envelope: {
+    version: number;
+    ephemeralKey: string;
+    iv: string;
+    ciphertext: string;
+  };
+  timestamp: string;
+  dbId: number;
+}
+
 export interface KeyCountResponse {
   count: number;
 }
@@ -199,6 +210,7 @@ export interface WsUser {
 // Client -> Server
 export type WsClientMessage =
   | WsClientChatMessage
+  | WsClientSealedMessage
   | WsClientAckMessage
   | WsClientDisappearingTimerMessage;
 
@@ -206,6 +218,18 @@ export interface WsClientChatMessage {
   type: typeof WS_MSG_TYPE.MESSAGE;
   to: string;
   message: { type: number; body: string };
+  id: string;
+}
+
+export interface WsClientSealedMessage {
+  type: typeof WS_MSG_TYPE.SEALED_MESSAGE;
+  recipientId: number;
+  envelope: {
+    version: number;
+    ephemeralKey: string;
+    iv: string;
+    ciphertext: string;
+  };
   id: string;
 }
 
@@ -227,6 +251,7 @@ export interface WsClientDisappearingTimerMessage {
 // Server -> Client
 export type WsServerMessage =
   | WsServerChatMessage
+  | WsServerSealedMessage
   | WsServerStoredMessage
   | WsServerDeliveredMessage
   | WsServerDisappearingTimerMessage
@@ -241,6 +266,18 @@ export interface WsServerChatMessage {
   message: { type: number; body: string };
   timestamp: string;
   id: string;
+  dbId: number;
+}
+
+export interface WsServerSealedMessage {
+  type: typeof WS_MSG_TYPE.SEALED_MESSAGE;
+  envelope: {
+    version: number;
+    ephemeralKey: string;
+    iv: string;
+    ciphertext: string;
+  };
+  timestamp: string;
   dbId: number;
 }
 

@@ -110,23 +110,6 @@ export function initChat(): void {
     }
   });
 
-  // Typing indicator (throttled to avoid hitting server rate limits)
-  let typingTimeout: ReturnType<typeof setTimeout> | null = null;
-  let lastTypingSent = 0;
-  const TYPING_THROTTLE_MS = 500;
-  input.addEventListener('input', () => {
-    if (!currentChat) return;
-    const now = Date.now();
-    if (now - lastTypingSent >= TYPING_THROTTLE_MS) {
-      wsSend({ type: WS_MSG_TYPE.TYPING, to: currentChat, isTyping: true });
-      lastTypingSent = now;
-    }
-    if (typingTimeout) clearTimeout(typingTimeout);
-    typingTimeout = setTimeout(() => {
-      wsSend({ type: WS_MSG_TYPE.TYPING, to: currentChat!, isTyping: false });
-    }, 5000);
-  });
-
   // Disappearing messages menu
   const disappearingBtn = document.getElementById('disappearing-btn')!;
   const disappearingMenu = document.getElementById('disappearing-menu')!;
@@ -666,16 +649,6 @@ function renderTextWithLinks(element: HTMLElement, text: string): void {
   }
 }
 
-export function showTypingIndicator(from: string, isTyping: boolean): void {
-  if (from === currentChat) {
-    const indicator = document.getElementById('typing-indicator')!;
-    if (isTyping) {
-      indicator.classList.remove('hidden');
-    } else {
-      indicator.classList.add('hidden');
-    }
-  }
-}
 
 
 function formatTime(isoString: string): string {

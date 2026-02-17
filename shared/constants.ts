@@ -2,7 +2,6 @@ export const WS_MSG_TYPE = {
   MESSAGE: 'message',
   DELIVERED: 'delivered',
   STORED: 'stored',
-  TYPING: 'typing',
   PREKEY_LOW: 'prekey_low',
   PREKEY_STALE: 'prekey_stale',
   ERROR: 'error',

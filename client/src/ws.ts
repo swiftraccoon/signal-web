@@ -240,12 +240,9 @@ function send(data: QueuedMessage): void {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(data));
   } else {
-    // Queue for sending when reconnected (except typing indicators)
-    if (data.type !== 'typing') {
-      queueMessage(data).catch((err) => {
-        console.error('Failed to queue message:', err);
-      });
-    }
+    queueMessage(data).catch((err) => {
+      console.error('Failed to queue message:', err);
+    });
   }
 }
 

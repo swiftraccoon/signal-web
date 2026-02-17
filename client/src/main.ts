@@ -2,7 +2,7 @@ import { api, setToken, setRefreshToken, setCurrentUser } from './api';
 import { connect, disconnect, on } from './ws';
 import { initAuth, showAuth, hideAuth } from './ui/auth';
 import { initContacts, loadContacts, addContact, getActiveContact, incrementUnread } from './ui/contacts';
-import { initChat, openChat, handleIncomingMessage, showTypingIndicator, handleDelivered, handleReadReceipt, handleDisappearingTimerChange, addSystemMessage } from './ui/chat';
+import { initChat, openChat, handleIncomingMessage, handleDelivered, handleReadReceipt, handleDisappearingTimerChange, addSystemMessage } from './ui/chat';
 import { showToast, showDesktopNotification, getNotificationsEnabled } from './ui/notifications';
 import { initSettings } from './ui/settings';
 import { getStore, resetStore } from './signal/client';
@@ -193,11 +193,6 @@ function setupWSHandlers(): void {
 
   on(WS_MSG_TYPE.READ_RECEIPT, (raw) => {
     handleReadReceipt(raw as WsServerReadReceiptMessage);
-  });
-
-  on(WS_MSG_TYPE.TYPING, (raw) => {
-    const data = raw as { from: string; isTyping: boolean };
-    showTypingIndicator(data.from, data.isTyping);
   });
 
   on(WS_MSG_TYPE.DISAPPEARING_TIMER, (raw) => {

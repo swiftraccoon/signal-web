@@ -191,7 +191,6 @@ export interface WsUser {
 export type WsClientMessage =
   | WsClientChatMessage
   | WsClientAckMessage
-  | WsClientTypingMessage
   | WsClientReadReceiptMessage
   | WsClientDisappearingTimerMessage;
 
@@ -209,11 +208,6 @@ export interface WsClientAckMessage {
   originalId: string;
 }
 
-export interface WsClientTypingMessage {
-  type: typeof WS_MSG_TYPE.TYPING;
-  to: string;
-  isTyping: boolean;
-}
 
 export interface WsClientReadReceiptMessage {
   type: typeof WS_MSG_TYPE.READ_RECEIPT;
@@ -232,7 +226,6 @@ export type WsServerMessage =
   | WsServerChatMessage
   | WsServerStoredMessage
   | WsServerDeliveredMessage
-  | WsServerTypingMessage
   | WsServerReadReceiptMessage
   | WsServerDisappearingTimerMessage
   | WsServerPrekeyLowMessage
@@ -260,11 +253,6 @@ export interface WsServerDeliveredMessage {
   id: string;
 }
 
-export interface WsServerTypingMessage {
-  type: typeof WS_MSG_TYPE.TYPING;
-  from: string;
-  isTyping: boolean;
-}
 
 export interface WsServerReadReceiptMessage {
   type: typeof WS_MSG_TYPE.READ_RECEIPT;

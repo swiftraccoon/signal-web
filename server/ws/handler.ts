@@ -53,9 +53,6 @@ async function handleMessage(ws: WebSocket, user: WsUser, msg: Record<string, un
     case WS_MSG_TYPE.MESSAGE:
       await handleChatMessage(ws, user, msg);
       return;
-    case WS_MSG_TYPE.TYPING:
-      handleTyping(user, msg);
-      return;
     case WS_MSG_TYPE.READ_RECEIPT:
       handleReadReceipt(user, msg);
       return;
@@ -172,25 +169,6 @@ function handleAck(user: WsUser, msg: Record<string, unknown>): void {
         id: result.original_id,
       });
     }
-  }
-}
-
-function handleTyping(sender: WsUser, msg: Record<string, unknown>): void {
-  if (!msg.to || typeof msg.to !== 'string') return;
-
-  const recipient = stmt.getUserByUsername.get(msg.to) as DbUser | undefined;
-  if (!recipient || !isOnline(recipient.id)) return;
-
-  // Only relay typing to users with prior conversation (prevents presence leak to strangers)
-  if (!stmt.hasConversation.get(sender.id, recipient.id, recipient.id, sender.id)) return;
-
-  const recipientWs = getConnection(recipient.id);
-  if (recipientWs) {
-    send(recipientWs, {
-      type: WS_MSG_TYPE.TYPING,
-      from: sender.username,
-      isTyping: !!msg.isTyping,
-    });
   }
 }
 

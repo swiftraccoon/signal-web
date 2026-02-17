@@ -179,9 +179,9 @@ export async function importKeys(blob: string, password: string, username: strin
   let decrypted: string;
   try {
     const plaintext = await crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv },
+      { name: 'AES-GCM', iv: iv as BufferSource },
       backupKey,
-      ciphertext
+      ciphertext as BufferSource
     );
     decrypted = new TextDecoder().decode(plaintext);
   } catch {

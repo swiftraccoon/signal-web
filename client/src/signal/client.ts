@@ -118,11 +118,11 @@ export async function encryptMessage(username: string, userId: number, plaintext
 
   const textBytes = new TextEncoder().encode(plaintext);
   const padded = pad(textBytes);
-  const result = await cipher.encrypt(padded.buffer);
+  const result = await cipher.encrypt(padded.buffer as ArrayBuffer);
 
   // H7: Zero the plaintext and padded buffers after encryption
-  zeroArrayBuffer(textBytes.buffer);
-  zeroArrayBuffer(padded.buffer);
+  zeroArrayBuffer(textBytes.buffer as ArrayBuffer);
+  zeroArrayBuffer(padded.buffer as ArrayBuffer);
 
   // Body from encrypt is a binary string; base64 encode for safe JSON transport
   return {
@@ -154,6 +154,6 @@ export async function decryptMessage(senderUsername: string, encryptedMessage: S
   const text = new TextDecoder().decode(originalBytes);
   // H7: Zero buffers after decoding
   zeroArrayBuffer(plainBuffer);
-  zeroArrayBuffer(originalBytes.buffer);
+  zeroArrayBuffer(originalBytes.buffer as ArrayBuffer);
   return text;
 }

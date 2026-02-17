@@ -7,7 +7,6 @@ export const WS_MSG_TYPE = {
   PREKEY_STALE: 'prekey_stale',
   ERROR: 'error',
   READ_RECEIPT: 'read_receipt',
-  PRESENCE: 'presence',
   DISAPPEARING_TIMER: 'disappearing_timer',
   ACK: 'ack',
 } as const;

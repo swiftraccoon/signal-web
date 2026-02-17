@@ -1,8 +1,8 @@
 import { api, setToken, setRefreshToken, setCurrentUser } from './api';
 import { connect, disconnect, on } from './ws';
 import { initAuth, showAuth, hideAuth } from './ui/auth';
-import { initContacts, loadContacts, addContact, getActiveContact, incrementUnread, setUserOnline, setUserOffline, setOnlineUsers } from './ui/contacts';
-import { initChat, openChat, handleIncomingMessage, showTypingIndicator, handleDelivered, handleReadReceipt, handleDisappearingTimerChange, updateChatStatus, addSystemMessage } from './ui/chat';
+import { initContacts, loadContacts, addContact, getActiveContact, incrementUnread } from './ui/contacts';
+import { initChat, openChat, handleIncomingMessage, showTypingIndicator, handleDelivered, handleReadReceipt, handleDisappearingTimerChange, addSystemMessage } from './ui/chat';
 import { showToast, showDesktopNotification, getNotificationsEnabled } from './ui/notifications';
 import { initSettings } from './ui/settings';
 import { getStore, resetStore } from './signal/client';
@@ -11,7 +11,7 @@ import { generateAndStoreKeys, generateMorePreKeys, rotateSignedPreKeyIfNeeded }
 import { clearAll, initEncryption, clearEncryptionKey, upgradeIterationsIfNeeded, remove, STORES } from './storage/indexeddb';
 import { showOnboardingIfNew } from './ui/onboarding';
 import { WS_MSG_TYPE } from '../../shared/constants';
-import type { ApiUser, WsServerChatMessage, WsServerDeliveredMessage, WsServerReadReceiptMessage, WsServerPresenceMessage, WsServerDisappearingTimerMessage, WsServerErrorMessage } from '../../shared/types';
+import type { ApiUser, WsServerChatMessage, WsServerDeliveredMessage, WsServerReadReceiptMessage, WsServerDisappearingTimerMessage, WsServerErrorMessage } from '../../shared/types';
 
 function setLoading(btn: HTMLButtonElement, loading: boolean, originalText: string): void {
   if (loading) {
@@ -198,25 +198,6 @@ function setupWSHandlers(): void {
   on(WS_MSG_TYPE.TYPING, (raw) => {
     const data = raw as { from: string; isTyping: boolean };
     showTypingIndicator(data.from, data.isTyping);
-  });
-
-  on(WS_MSG_TYPE.PRESENCE, (raw) => {
-    const data = raw as WsServerPresenceMessage;
-    if (data.onlineUserIds) {
-      // Initial presence list
-      setOnlineUsers(data.onlineUserIds);
-    } else if (data.userId !== undefined) {
-      // Individual presence update
-      if (data.online) {
-        setUserOnline(data.userId);
-      } else {
-        setUserOffline(data.userId);
-      }
-    }
-    // Update chat header if a contact's status changed
-    if (data.username) {
-      updateChatStatus(data.username);
-    }
   });
 
   on(WS_MSG_TYPE.DISAPPEARING_TIMER, (raw) => {

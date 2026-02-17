@@ -4,7 +4,6 @@ import logger from './logger';
 import { incr, DB_SLOW_THRESHOLD_MS } from './metrics';
 import type {
   DbIdentityKey, DbSignedPreKey, DbOneTimePreKey,
-  DbConversationPartner,
   PreKeyBundleUpload,
   PreKeyBundleResponse,
 } from '../shared/types';
@@ -191,13 +190,6 @@ const stmt = {
   // Audit logging
   insertAudit: timedStmt(db.prepare('INSERT INTO audit_log (event, user_id, username, ip, details) VALUES (?, ?, ?, ?, ?)'), 'insertAudit'),
 
-  // Conversation partners (for scoped presence)
-  getConversationPartners: timedStmt(db.prepare(`
-    SELECT DISTINCT sender_id AS partner_id FROM messages WHERE recipient_id = ?
-    UNION
-    SELECT DISTINCT recipient_id AS partner_id FROM messages WHERE sender_id = ?
-  `), 'getConversationPartners'),
-
   // Refresh tokens
   createRefreshToken: timedStmt(db.prepare('INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)'), 'createRefreshToken'),
   getRefreshToken: timedStmt(db.prepare('SELECT * FROM refresh_tokens WHERE token_hash = ? AND expires_at > unixepoch()'), 'getRefreshToken'),
@@ -257,8 +249,4 @@ const deleteUser: (userId: number) => void = db.transaction((userId: number): vo
   db.prepare('DELETE FROM users WHERE id = ?').run(userId);
 });
 
-function getConversationPartners(userId: number): number[] {
-  return (stmt.getConversationPartners.all(userId, userId) as DbConversationPartner[]).map(r => r.partner_id);
-}
-
-export { db, stmt, getPreKeyBundle, uploadBundle, deleteUser, getConversationPartners };
+export { db, stmt, getPreKeyBundle, uploadBundle, deleteUser };

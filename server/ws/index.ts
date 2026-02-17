@@ -1,14 +1,14 @@
 import { WebSocketServer, WebSocket as WsWebSocket } from 'ws';
 import http from 'http';
 import config from '../config';
-import { addConnection, removeConnection, getConnection, isOnline } from './connections';
+import { addConnection, removeConnection } from './connections';
 import { handleMessage } from './handler';
 import { consumeWsTicket } from './tickets';
 import { MAX_WS_MESSAGE_SIZE, WS_MSG_TYPE } from '../../shared/constants';
 import logger from '../logger';
 import { audit } from '../audit';
 import { incr } from '../metrics';
-import { stmt, getConversationPartners } from '../db';
+import { stmt } from '../db';
 import { getRedis } from '../redis';
 import type { DbUser, UserRateLimitEntry, WsUser } from '../../shared/types';
 
@@ -89,7 +89,6 @@ function setupWebSocket(server: http.Server): WebSocketServer {
       if (ws._isAlive === false) {
         logger.debug({ userId: ws._userId }, 'Terminating stale WS connection (no pong)');
         removeConnection(ws._userId, ws);
-        broadcastPresence(ws._userId, ws._username, false);
         ws.terminate();
         continue;
       }
@@ -174,17 +173,6 @@ function setupWebSocket(server: http.Server): WebSocketServer {
 
     logger.debug({ userId: user.id, username: user.username }, 'WS connected');
 
-    // Send this user only their contacts' online status FIRST
-    const partnerIds = getConversationPartners(user.id);
-    const onlinePartnerIds = partnerIds.filter(id => isOnline(id));
-    ws.send(JSON.stringify({
-      type: WS_MSG_TYPE.PRESENCE,
-      onlineUserIds: onlinePartnerIds,
-    }));
-
-    // THEN broadcast presence to partners (so they know you're online)
-    broadcastPresence(user.id, user.username, true);
-
     // Check signed pre-key freshness
     const signedPreKey = stmt.getSignedPreKey.get(user.id) as { uploaded_at?: number } | undefined;
     if (signedPreKey?.uploaded_at) {
@@ -225,7 +213,6 @@ function setupWebSocket(server: http.Server): WebSocketServer {
       removeConnection(user.id, ws);
       // C3: Do NOT delete rate limit state on disconnect — let it expire via periodic cleanup
       logger.debug({ userId: user.id, username: user.username }, 'WS disconnected');
-      broadcastPresence(user.id, user.username, false);
     });
 
     ws.on('error', (err: Error) => {
@@ -235,25 +222,6 @@ function setupWebSocket(server: http.Server): WebSocketServer {
   });
 
   return wss;
-}
-
-// Broadcast presence only to users who have exchanged messages with this user
-function broadcastPresence(userId: number, username: string, online: boolean): void {
-  const partnerIds = getConversationPartners(userId);
-
-  for (const partnerId of partnerIds) {
-    if (isOnline(partnerId)) {
-      const partnerWs = getConnection(partnerId);
-      if (partnerWs && partnerWs.readyState === WsWebSocket.OPEN) {
-        partnerWs.send(JSON.stringify({
-          type: WS_MSG_TYPE.PRESENCE,
-          userId,
-          username,
-          online,
-        }));
-      }
-    }
-  }
 }
 
 export { setupWebSocket };

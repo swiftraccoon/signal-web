@@ -57,9 +57,6 @@ export interface DbCount {
   count: number;
 }
 
-export interface DbConversationPartner {
-  partner_id: number;
-}
 
 export interface DbRefreshToken {
   id: number;
@@ -240,8 +237,7 @@ export type WsServerMessage =
   | WsServerDisappearingTimerMessage
   | WsServerPrekeyLowMessage
   | WsServerPrekeyStaleMessage
-  | WsServerErrorMessage
-  | WsServerPresenceMessage;
+  | WsServerErrorMessage;
 
 export interface WsServerChatMessage {
   type: typeof WS_MSG_TYPE.MESSAGE;
@@ -297,13 +293,6 @@ export interface WsServerErrorMessage {
   message: string;
 }
 
-export interface WsServerPresenceMessage {
-  type: typeof WS_MSG_TYPE.PRESENCE;
-  onlineUserIds?: number[];
-  userId?: number;
-  username?: string;
-  online?: boolean;
-}
 
 // ===== Client Types =====
 

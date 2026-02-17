@@ -2,7 +2,7 @@ import { STORES, get, put, putDebounced } from '../storage/indexeddb';
 import QRCode from 'qrcode';
 import { encryptMessage, decryptMessage } from '../signal/client';
 import { send as wsSend, on as wsOn, requeueMessage } from '../ws';
-import { getContactInfo, updateLastMessage, isContactOnline } from './contacts';
+import { getContactInfo, updateLastMessage } from './contacts';
 import { showToast } from './notifications';
 import { WS_MSG_TYPE } from '../../../shared/constants';
 import type { ChatMessage, WsServerDeliveredMessage, WsServerReadReceiptMessage, WsServerDisappearingTimerMessage } from '../../../shared/types';
@@ -202,9 +202,6 @@ export async function openChat(username: string): Promise<void> {
   document.getElementById('chat-active')!.classList.remove('hidden');
   document.getElementById('chat-recipient')!.textContent = username;
   document.getElementById('disappearing-menu')!.classList.add('hidden');
-
-  // Update online status in header
-  updateChatStatus(username);
 
   // Hide sidebar on mobile
   if (window.innerWidth <= 768) {
@@ -680,20 +677,6 @@ export function showTypingIndicator(from: string, isTyping: boolean): void {
   }
 }
 
-export function updateChatStatus(username?: string): void {
-  if (currentChat !== username && username !== undefined) return;
-  const target = username || currentChat;
-  if (!target) return;
-
-  const statusEl = document.getElementById('chat-status')!;
-  if (isContactOnline(target)) {
-    statusEl.textContent = 'online';
-    statusEl.className = 'chat-status online';
-  } else {
-    statusEl.textContent = 'offline';
-    statusEl.className = 'chat-status';
-  }
-}
 
 function formatTime(isoString: string): string {
   try {

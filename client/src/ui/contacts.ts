@@ -5,7 +5,6 @@ import type { ApiUser, Contact } from '../../../shared/types';
 let contacts: Record<string, Contact> = {};
 let activeContact: string | null = null;
 let onSelectContact: ((username: string, contact?: Contact) => void) | null = null;
-let onlineUsers = new Set<number>();
 let contactRenderScheduled = false;
 
 export function initContacts(callback: (username: string) => void): void {
@@ -119,27 +118,6 @@ export function updateLastMessage(username: string, text: string, time: string):
   }
 }
 
-// Presence management
-export function setUserOnline(userId: number): void {
-  onlineUsers.add(userId);
-  scheduleContactRender();
-}
-
-export function setUserOffline(userId: number): void {
-  onlineUsers.delete(userId);
-  scheduleContactRender();
-}
-
-export function setOnlineUsers(userIds: number[]): void {
-  onlineUsers = new Set(userIds);
-  scheduleContactRender();
-}
-
-export function isContactOnline(username: string): boolean {
-  const contact = contacts[username];
-  if (!contact) return false;
-  return onlineUsers.has(contact.id);
-}
 
 function scheduleContactRender(): void {
   if (contactRenderScheduled) return;
@@ -172,13 +150,6 @@ function renderContacts(): void {
     const avatar = document.createElement('div');
     avatar.className = 'contact-avatar';
     avatar.textContent = contact.username[0]!.toUpperCase();
-
-    // Online dot
-    if (onlineUsers.has(contact.id)) {
-      const dot = document.createElement('div');
-      dot.className = 'online-dot';
-      avatar.appendChild(dot);
-    }
 
     const info = document.createElement('div');
     info.className = 'contact-info';

@@ -5,6 +5,7 @@ import { WS_MSG_TYPE } from '../../shared/constants';
 import { incr } from '../metrics';
 import logger from '../logger';
 import { getRedis } from '../redis';
+import config from '../config';
 import type { WsUser, DbUser, DbMarkDeliveredResult } from '../../shared/types';
 
 const MAX_MESSAGE_BODY_SIZE = 50 * 1024; // 50KB explicit body limit
@@ -19,7 +20,7 @@ setInterval(() => {
   }
 }, 30000);
 
-// Redis-backed replay detection with in-memory fallback
+// Redis-backed replay detection with in-memory fallback (fail-closed in production)
 // Returns true if message is NEW (not a replay), false if it IS a replay
 async function checkReplay(dedupeKey: string): Promise<boolean> {
   const redis = getRedis();
@@ -28,12 +29,18 @@ async function checkReplay(dedupeKey: string): Promise<boolean> {
       const result = await redis.set(dedupeKey, '1', 'PX', MESSAGE_ID_TTL_MS, 'NX');
       return result === 'OK'; // 'OK' = new key (not replay), null = key exists (replay)
     } catch (err) {
-      logger.warn({ err, dedupeKey }, 'Redis replay check failed, falling back to in-memory');
-      // Fall through to in-memory logic
+      logger.warn({ err, dedupeKey }, 'Redis replay check failed');
+      if (config.IS_PRODUCTION) {
+        return false; // Fail closed in production — reject message
+      }
+      // Fall through to in-memory logic in development only
     }
+  } else if (config.IS_PRODUCTION) {
+    logger.error('Redis unavailable in production — replay detection fail-closed');
+    return false; // Fail closed — no Redis means no replay protection
   }
 
-  // In-memory fallback
+  // In-memory fallback (development only)
   if (recentMessageIds.has(dedupeKey)) {
     return false; // replay
   }

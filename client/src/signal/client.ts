@@ -4,6 +4,7 @@ import {
   SignalProtocolAddress,
 } from '@privacyresearch/libsignal-protocol-typescript';
 import { SignalProtocolStore, b642ab, zeroArrayBuffer } from './store';
+import { pad, unpad } from './padding';
 import { api } from '../api';
 
 const DEVICE_ID = 1;
@@ -116,10 +117,12 @@ export async function encryptMessage(username: string, userId: number, plaintext
   const cipher = new SessionCipher(getStore(), address);
 
   const textBytes = new TextEncoder().encode(plaintext);
-  const result = await cipher.encrypt(textBytes.buffer);
+  const padded = pad(textBytes);
+  const result = await cipher.encrypt(padded.buffer);
 
-  // H7: Zero the plaintext buffer after encryption
+  // H7: Zero the plaintext and padded buffers after encryption
   zeroArrayBuffer(textBytes.buffer);
+  zeroArrayBuffer(padded.buffer);
 
   // Body from encrypt is a binary string; base64 encode for safe JSON transport
   return {
@@ -146,8 +149,11 @@ export async function decryptMessage(senderUsername: string, encryptedMessage: S
     throw new Error(`Unknown message type: ${encryptedMessage.type}`);
   }
 
-  const text = new TextDecoder().decode(plainBuffer);
-  // H7: Zero the plaintext buffer after decoding
+  const paddedBytes = new Uint8Array(plainBuffer);
+  const originalBytes = unpad(paddedBytes);
+  const text = new TextDecoder().decode(originalBytes);
+  // H7: Zero buffers after decoding
   zeroArrayBuffer(plainBuffer);
+  zeroArrayBuffer(originalBytes.buffer);
   return text;
 }

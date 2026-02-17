@@ -5,7 +5,6 @@ export const WS_MSG_TYPE = {
   PREKEY_LOW: 'prekey_low',
   PREKEY_STALE: 'prekey_stale',
   ERROR: 'error',
-  READ_RECEIPT: 'read_receipt',
   DISAPPEARING_TIMER: 'disappearing_timer',
   ACK: 'ack',
 } as const;

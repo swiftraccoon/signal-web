@@ -2,7 +2,7 @@ import { api, setToken, setRefreshToken, setCurrentUser } from './api';
 import { connect, disconnect, on } from './ws';
 import { initAuth, showAuth, hideAuth } from './ui/auth';
 import { initContacts, loadContacts, addContact, getActiveContact, incrementUnread } from './ui/contacts';
-import { initChat, openChat, handleIncomingMessage, handleDelivered, handleReadReceipt, handleDisappearingTimerChange, addSystemMessage } from './ui/chat';
+import { initChat, openChat, handleIncomingMessage, handleDelivered, handleDisappearingTimerChange, addSystemMessage } from './ui/chat';
 import { showToast, showDesktopNotification, getNotificationsEnabled } from './ui/notifications';
 import { initSettings } from './ui/settings';
 import { getStore, resetStore } from './signal/client';
@@ -11,7 +11,7 @@ import { generateAndStoreKeys, generateMorePreKeys, rotateSignedPreKeyIfNeeded }
 import { clearAll, initEncryption, clearEncryptionKey, upgradeIterationsIfNeeded, remove, STORES } from './storage/indexeddb';
 import { showOnboardingIfNew } from './ui/onboarding';
 import { WS_MSG_TYPE } from '../../shared/constants';
-import type { ApiUser, WsServerChatMessage, WsServerDeliveredMessage, WsServerReadReceiptMessage, WsServerDisappearingTimerMessage, WsServerErrorMessage } from '../../shared/types';
+import type { ApiUser, WsServerChatMessage, WsServerDeliveredMessage, WsServerDisappearingTimerMessage, WsServerErrorMessage } from '../../shared/types';
 
 function setLoading(btn: HTMLButtonElement, loading: boolean, originalText: string): void {
   if (loading) {
@@ -189,10 +189,6 @@ function setupWSHandlers(): void {
 
   on(WS_MSG_TYPE.DELIVERED, (raw) => {
     handleDelivered(raw as WsServerDeliveredMessage);
-  });
-
-  on(WS_MSG_TYPE.READ_RECEIPT, (raw) => {
-    handleReadReceipt(raw as WsServerReadReceiptMessage);
   });
 
   on(WS_MSG_TYPE.DISAPPEARING_TIMER, (raw) => {

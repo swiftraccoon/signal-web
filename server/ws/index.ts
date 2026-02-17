@@ -25,7 +25,6 @@ const PING_INTERVAL = 30000;
 // Per-message-type rate limits (max messages per second)
 const WS_RATE_LIMITS: Record<string, number> = {
   [WS_MSG_TYPE.MESSAGE]: 20,
-  [WS_MSG_TYPE.READ_RECEIPT]: 10,
   [WS_MSG_TYPE.DISAPPEARING_TIMER]: 5,
   [WS_MSG_TYPE.ACK]: 50,
 };

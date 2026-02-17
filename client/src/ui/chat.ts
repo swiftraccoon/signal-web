@@ -5,7 +5,7 @@ import { send as wsSend, on as wsOn, requeueMessage } from '../ws';
 import { getContactInfo, updateLastMessage } from './contacts';
 import { showToast } from './notifications';
 import { WS_MSG_TYPE } from '../../../shared/constants';
-import type { ChatMessage, WsServerDeliveredMessage, WsServerReadReceiptMessage, WsServerDisappearingTimerMessage } from '../../../shared/types';
+import type { ChatMessage, WsServerDeliveredMessage, WsServerDisappearingTimerMessage } from '../../../shared/types';
 
 let currentChat: string | null = null; // username
 let messageHistory: Record<string, ChatMessage[]> = {};
@@ -208,9 +208,6 @@ export async function openChat(username: string): Promise<void> {
   renderMessages(username);
   (document.getElementById('message-input') as HTMLInputElement).focus();
 
-  // Send read receipts for unread messages
-  sendReadReceipts(username);
-
   // Start disappearing message checker
   startDisappearChecker(username);
 }
@@ -256,15 +253,6 @@ export async function handleIncomingMessage(data: IncomingMessageData): Promise<
       });
     }
 
-    // If this chat is currently open, send read receipt immediately
-    if (currentChat === data.from && document.visibilityState === 'visible') {
-      wsSend({
-        type: WS_MSG_TYPE.READ_RECEIPT,
-        to: data.from,
-        messageIds: [data.id!],
-      });
-    }
-
     return { from: data.from, text: plaintext };
   } catch (err) {
     console.error('Decrypt error:', err);
@@ -282,14 +270,6 @@ export async function handleIncomingMessage(data: IncomingMessageData): Promise<
 // Handle delivery confirmation from server
 export async function handleDelivered(data: WsServerDeliveredMessage): Promise<void> {
   await updateMessageStatus(data.id, 'delivered');
-}
-
-// Handle read receipts from contact
-export async function handleReadReceipt(data: WsServerReadReceiptMessage): Promise<void> {
-  if (!data.messageIds || !data.from) return;
-  for (const msgId of data.messageIds) {
-    await updateMessageStatus(msgId, 'read');
-  }
 }
 
 // Handle disappearing timer change from contact
@@ -362,20 +342,17 @@ function updateDisappearingMenuActive(): void {
   }
 }
 
-async function updateMessageStatus(msgId: string, status: 'delivered' | 'read'): Promise<void> {
+async function updateMessageStatus(msgId: string, status: 'delivered'): Promise<void> {
   // O(1) lookup using IndexedDB-backed message status store
   const username = await getMessageUsername(msgId);
   if (username) {
     const msgs = messageHistory[username];
     if (msgs) {
       for (const msg of msgs) {
-        if (msg.id === msgId && msg.sent) {
-          const order: Record<string, number> = { sent: 0, delivered: 1, read: 2 };
-          if ((order[status] || 0) > (order[msg.status || 'sent'] || 0)) {
-            msg.status = status;
-            putDebounced(STORES.MESSAGES, username, messageHistory[username]!);
-            if (currentChat === username) scheduleRender(username);
-          }
+        if (msg.id === msgId && msg.sent && msg.status !== 'delivered') {
+          msg.status = status;
+          putDebounced(STORES.MESSAGES, username, messageHistory[username]!);
+          if (currentChat === username) scheduleRender(username);
           return;
         }
       }
@@ -385,38 +362,14 @@ async function updateMessageStatus(msgId: string, status: 'delivered' | 'read'):
   for (const uname in messageHistory) {
     const msgs = messageHistory[uname]!;
     for (const msg of msgs) {
-      if (msg.id === msgId && msg.sent) {
-        const order: Record<string, number> = { sent: 0, delivered: 1, read: 2 };
-        if ((order[status] || 0) > (order[msg.status || 'sent'] || 0)) {
-          msg.status = status;
-          await trackMessageId(msgId, uname);
-          putDebounced(STORES.MESSAGES, uname, messageHistory[uname]!);
-          if (currentChat === uname) scheduleRender(uname);
-        }
+      if (msg.id === msgId && msg.sent && msg.status !== 'delivered') {
+        msg.status = status;
+        await trackMessageId(msgId, uname);
+        putDebounced(STORES.MESSAGES, uname, messageHistory[uname]!);
+        if (currentChat === uname) scheduleRender(uname);
         return;
       }
     }
-  }
-}
-
-function sendReadReceipts(username: string): void {
-  const msgs = messageHistory[username] || [];
-  const unreadIds = msgs
-    .filter(m => !m.sent && m.id && !m.readReceiptSent)
-    .map(m => m.id!);
-
-  if (unreadIds.length > 0) {
-    wsSend({
-      type: WS_MSG_TYPE.READ_RECEIPT,
-      to: username,
-      messageIds: unreadIds,
-    });
-    for (const msg of msgs) {
-      if (msg.id && unreadIds.includes(msg.id)) {
-        msg.readReceiptSent = true;
-      }
-    }
-    putDebounced(STORES.MESSAGES, username, msgs);
   }
 }
 
@@ -554,13 +507,10 @@ function renderMessages(username: string): void {
     // Status indicators for sent messages
     if (msg.sent && !msg.error) {
       const statusEl = document.createElement('span');
-      // L2: Validate status before using as CSS class
-      const VALID_STATUSES = new Set(['sent', 'delivered', 'read']);
+      const VALID_STATUSES = new Set(['sent', 'delivered']);
       const safeStatus = VALID_STATUSES.has(msg.status || 'sent') ? (msg.status || 'sent') : 'sent';
       statusEl.className = `message-status ${safeStatus}`;
-      if (msg.status === 'read') {
-        statusEl.textContent = '\u2713\u2713'; // double check
-      } else if (msg.status === 'delivered') {
+      if (msg.status === 'delivered') {
         statusEl.textContent = '\u2713\u2713'; // double check
       } else {
         statusEl.textContent = '\u2713'; // single check

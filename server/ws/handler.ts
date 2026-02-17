@@ -53,9 +53,6 @@ async function handleMessage(ws: WebSocket, user: WsUser, msg: Record<string, un
     case WS_MSG_TYPE.MESSAGE:
       await handleChatMessage(ws, user, msg);
       return;
-    case WS_MSG_TYPE.READ_RECEIPT:
-      handleReadReceipt(user, msg);
-      return;
     case WS_MSG_TYPE.DISAPPEARING_TIMER:
       handleDisappearingTimer(user, msg);
       return;
@@ -169,29 +166,6 @@ function handleAck(user: WsUser, msg: Record<string, unknown>): void {
         id: result.original_id,
       });
     }
-  }
-}
-
-// C2: Read receipt now requires hasConversation check (was missing)
-function handleReadReceipt(sender: WsUser, msg: Record<string, unknown>): void {
-  if (!msg.to || typeof msg.to !== 'string') return;
-  if (!Array.isArray(msg.messageIds) || msg.messageIds.length === 0 || msg.messageIds.length > 100) return;
-  // Validate all messageIds are strings
-  if (!msg.messageIds.every((id: unknown) => typeof id === 'string' && (id as string).length < 50)) return;
-
-  const recipient = stmt.getUserByUsername.get(msg.to) as DbUser | undefined;
-  if (!recipient || !isOnline(recipient.id)) return;
-
-  // C2: Only relay read receipts to users with prior conversation
-  if (!stmt.hasConversation.get(sender.id, recipient.id, recipient.id, sender.id)) return;
-
-  const recipientWs = getConnection(recipient.id);
-  if (recipientWs) {
-    send(recipientWs, {
-      type: WS_MSG_TYPE.READ_RECEIPT,
-      from: sender.username,
-      messageIds: msg.messageIds as string[],
-    });
   }
 }
 

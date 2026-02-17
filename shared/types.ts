@@ -191,7 +191,6 @@ export interface WsUser {
 export type WsClientMessage =
   | WsClientChatMessage
   | WsClientAckMessage
-  | WsClientReadReceiptMessage
   | WsClientDisappearingTimerMessage;
 
 export interface WsClientChatMessage {
@@ -209,11 +208,6 @@ export interface WsClientAckMessage {
 }
 
 
-export interface WsClientReadReceiptMessage {
-  type: typeof WS_MSG_TYPE.READ_RECEIPT;
-  to: string;
-  messageIds: string[];
-}
 
 export interface WsClientDisappearingTimerMessage {
   type: typeof WS_MSG_TYPE.DISAPPEARING_TIMER;
@@ -226,7 +220,6 @@ export type WsServerMessage =
   | WsServerChatMessage
   | WsServerStoredMessage
   | WsServerDeliveredMessage
-  | WsServerReadReceiptMessage
   | WsServerDisappearingTimerMessage
   | WsServerPrekeyLowMessage
   | WsServerPrekeyStaleMessage
@@ -254,11 +247,6 @@ export interface WsServerDeliveredMessage {
 }
 
 
-export interface WsServerReadReceiptMessage {
-  type: typeof WS_MSG_TYPE.READ_RECEIPT;
-  from: string;
-  messageIds: string[];
-}
 
 export interface WsServerDisappearingTimerMessage {
   type: typeof WS_MSG_TYPE.DISAPPEARING_TIMER;
@@ -297,7 +285,7 @@ export interface ChatMessage {
   sent: boolean;
   time: string;
   id?: string;
-  status?: 'sent' | 'delivered' | 'read';
+  status?: 'sent' | 'delivered';
   disappearAt?: number;
   error?: boolean;
   system?: boolean;

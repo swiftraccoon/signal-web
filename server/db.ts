@@ -54,6 +54,7 @@ db.exec(`
     recipient_id INTEGER NOT NULL REFERENCES users(id),
     type INTEGER NOT NULL,
     body TEXT NOT NULL,
+    original_id TEXT,
     timestamp TEXT DEFAULT (datetime('now')),
     delivered INTEGER DEFAULT 0,
     expires_at INTEGER
@@ -104,6 +105,7 @@ try { db.exec('ALTER TABLE users ADD COLUMN locked_until TEXT DEFAULT NULL'); } 
 try { db.exec("ALTER TABLE one_time_pre_keys ADD COLUMN uploaded_at INTEGER DEFAULT (unixepoch())"); } catch { /* column exists */ }
 try { db.exec("ALTER TABLE signed_pre_keys ADD COLUMN uploaded_at INTEGER DEFAULT (unixepoch())"); } catch { /* column exists */ }
 try { db.exec('ALTER TABLE messages ADD COLUMN expires_at INTEGER'); } catch { /* column exists */ }
+try { db.exec('ALTER TABLE messages ADD COLUMN original_id TEXT'); } catch { /* column exists */ }
 
 // Instrumented statement wrapper - tracks query timing
 interface TimedStatement {
@@ -178,7 +180,7 @@ const stmt = {
   getPendingMessages: timedStmt(db.prepare('SELECT m.id, m.sender_id, m.type, m.body, m.timestamp, u.username as sender_username FROM messages m JOIN users u ON m.sender_id = u.id WHERE m.recipient_id = ? AND m.delivered = 0 ORDER BY m.timestamp'), 'getPendingMessages'),
   markDelivered: timedStmt(db.prepare('UPDATE messages SET delivered = 1 WHERE id = ? AND recipient_id = ?'), 'markDelivered'),
   // ACK handler: atomically mark delivered and return actual sender_id (prevents spoofing)
-  markDeliveredAndGetSender: timedStmt(db.prepare('UPDATE messages SET delivered = 1 WHERE id = ? AND recipient_id = ? AND delivered = 0 RETURNING sender_id'), 'markDeliveredAndGetSender'),
+  markDeliveredAndGetSender: timedStmt(db.prepare('UPDATE messages SET delivered = 1 WHERE id = ? AND recipient_id = ? AND delivered = 0 RETURNING sender_id, original_id'), 'markDeliveredAndGetSender'),
   // Check if two users have exchanged messages (for typing/timer authorization)
   hasConversation: timedStmt(db.prepare('SELECT 1 FROM messages WHERE (sender_id = ? AND recipient_id = ?) OR (sender_id = ? AND recipient_id = ?) LIMIT 1'), 'hasConversation'),
   purgeDelivered: timedStmt(db.prepare("DELETE FROM messages WHERE delivered = 1 AND timestamp < datetime('now', '-1 hour')"), 'purgeDelivered'),
@@ -208,7 +210,7 @@ const stmt = {
     ON CONFLICT(user_id_1, user_id_2) DO UPDATE SET disappearing_timer_ms=excluded.disappearing_timer_ms, updated_at=excluded.updated_at
   `), 'upsertConversationTimer'),
   getConversationTimer: timedStmt(db.prepare('SELECT disappearing_timer_ms FROM conversation_settings WHERE user_id_1 = MIN(?, ?) AND user_id_2 = MAX(?, ?)'), 'getConversationTimer'),
-  storeMessageWithExpiry: timedStmt(db.prepare('INSERT INTO messages (sender_id, recipient_id, type, body, expires_at) VALUES (?, ?, ?, ?, ?)'), 'storeMessageWithExpiry'),
+  storeMessageWithExpiry: timedStmt(db.prepare('INSERT INTO messages (sender_id, recipient_id, type, body, expires_at, original_id) VALUES (?, ?, ?, ?, ?, ?)'), 'storeMessageWithExpiry'),
   purgeExpiredMessages: timedStmt(db.prepare('DELETE FROM messages WHERE expires_at IS NOT NULL AND expires_at < unixepoch()'), 'purgeExpiredMessages'),
 };
 

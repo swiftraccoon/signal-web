@@ -70,6 +70,7 @@ export interface DbRefreshToken {
 
 export interface DbMarkDeliveredResult {
   sender_id: number;
+  original_id: string | null;
 }
 
 // ===== API Types =====

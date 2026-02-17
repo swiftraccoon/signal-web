@@ -119,7 +119,7 @@ async function handleChatMessage(ws: WebSocket, sender: WsUser, msg: Record<stri
   // M10: Wrap DB insert in try-catch (recipient could be deleted between lookup and insert)
   let storedMsgId: number | bigint;
   try {
-    const result = stmt.storeMessageWithExpiry.run(sender.id, recipient.id, message.type, message.body, expiresAt);
+    const result = stmt.storeMessageWithExpiry.run(sender.id, recipient.id, message.type, message.body, expiresAt, msg.id);
     storedMsgId = result.lastInsertRowid;
   } catch (err) {
     logger.error({ err, senderId: sender.id, recipientId: recipient.id }, 'Failed to store message');
@@ -156,13 +156,13 @@ function handleAck(user: WsUser, msg: Record<string, unknown>): void {
   if (!result) return; // Not their message, already delivered, or not found
   incr('messagesDelivered');
 
-  // Notify the actual sender (from DB, not client-supplied msg.from)
-  if (isOnline(result.sender_id)) {
+  // Notify the actual sender using DB-stored original_id (not client-supplied msg.originalId)
+  if (result.original_id && isOnline(result.sender_id)) {
     const senderWs = getConnection(result.sender_id);
     if (senderWs) {
       send(senderWs, {
         type: WS_MSG_TYPE.DELIVERED,
-        id: msg.originalId,
+        id: result.original_id,
       });
     }
   }

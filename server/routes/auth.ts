@@ -197,8 +197,8 @@ router.put('/password', authenticateToken, authLimiter, async (req: Request, res
     }
 
     // H4: Enforce max password length (bcrypt truncates at 72 bytes)
-    if (newPassword.length < 12 || newPassword.length > 128) {
-      res.status(400).json({ error: 'Password must be 12-128 characters' });
+    if (newPassword.length < 12 || newPassword.length > 72) {
+      res.status(400).json({ error: 'Password must be 12-72 characters' });
       return;
     }
     if (!/[a-z]/.test(newPassword)) {

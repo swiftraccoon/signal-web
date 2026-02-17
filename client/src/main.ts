@@ -8,10 +8,12 @@ import { initSettings } from './ui/settings';
 import { getStore, resetStore } from './signal/client';
 import { ab2b64, onIdentityKeyChange } from './signal/store';
 import { generateAndStoreKeys, generateMorePreKeys, rotateSignedPreKeyIfNeeded } from './signal/keys';
+import { unsealMessage, verifySenderCertificate, setServerPublicKey } from './signal/sealed';
+import { clearSenderCertCache } from './signal/senderCertCache';
 import { clearAll, initEncryption, clearEncryptionKey, upgradeIterationsIfNeeded, remove, STORES } from './storage/indexeddb';
 import { showOnboardingIfNew } from './ui/onboarding';
 import { WS_MSG_TYPE } from '../../shared/constants';
-import type { ApiUser, WsServerChatMessage, WsServerDeliveredMessage, WsServerDisappearingTimerMessage, WsServerErrorMessage } from '../../shared/types';
+import type { ApiUser, WsServerChatMessage, WsServerSealedMessage, WsServerDeliveredMessage, WsServerDisappearingTimerMessage, WsServerErrorMessage } from '../../shared/types';
 
 function setLoading(btn: HTMLButtonElement, loading: boolean, originalText: string): void {
   if (loading) {
@@ -118,10 +120,18 @@ async function enterChat(user: ApiUser, isNewRegistration: boolean): Promise<voi
 
   await loadContacts();
 
+  // Fetch server's Ed25519 public key for sender certificate verification
+  try {
+    const { publicKey } = await api.getServerKey();
+    await setServerPublicKey(publicKey);
+  } catch (err) {
+    console.error('Failed to fetch server public key:', err);
+  }
+
   connect();
   setupWSHandlers();
 
-  // Fetch pending messages
+  // Fetch pending messages (regular + sealed)
   try {
     const pending = await api.getPendingMessages();
     for (const msg of pending) {
@@ -134,6 +144,15 @@ async function enterChat(user: ApiUser, isNewRegistration: boolean): Promise<voi
     }
   } catch (err) {
     console.error('Failed to fetch pending messages:', err);
+  }
+
+  try {
+    const pendingSealed = await api.getPendingSealedMessages();
+    for (const sealed of pendingSealed) {
+      await handleSealedIncoming(sealed.envelope, sealed.timestamp, sealed.dbId);
+    }
+  } catch (err) {
+    console.error('Failed to fetch pending sealed messages:', err);
   }
 
   // Check pre-key count and rotate signed pre-key if needed
@@ -167,6 +186,52 @@ async function enterChat(user: ApiUser, isNewRegistration: boolean): Promise<voi
   showOnboardingIfNew();
 }
 
+async function handleSealedIncoming(
+  envelope: WsServerSealedMessage['envelope'],
+  timestamp: string,
+  dbId: number,
+): Promise<void> {
+  try {
+    const store = getStore();
+    const identityKeyPair = await store.getIdentityKeyPair();
+    if (!identityKeyPair) {
+      console.error('Cannot unseal: no identity key pair');
+      return;
+    }
+
+    const { senderCert, message } = await unsealMessage(envelope, identityKeyPair.privKey);
+
+    // Verify the sender certificate was signed by our server
+    const certPayload = await verifySenderCertificate(senderCert);
+    if (!certPayload) {
+      console.error('Sealed message: invalid or expired sender certificate');
+      return;
+    }
+
+    // Process the inner Signal ciphertext through normal message handling
+    addContact({ id: certPayload.userId, username: certPayload.username });
+    const result = await handleIncomingMessage({
+      from: certPayload.username,
+      fromId: certPayload.userId,
+      message,
+      timestamp,
+      dbId,
+    });
+
+    if (getActiveContact() !== certPayload.username) {
+      incrementUnread(certPayload.username);
+      if (result.text) {
+        showToast(`${certPayload.username}: ${result.text.slice(0, 50)}`, 'info');
+      }
+    }
+    if (result.text) {
+      showDesktopNotification(certPayload.username, result.text);
+    }
+  } catch (err) {
+    console.error('Sealed message processing error:', err);
+  }
+}
+
 function setupWSHandlers(): void {
   on(WS_MSG_TYPE.MESSAGE, async (raw) => {
     const data = raw as WsServerChatMessage;
@@ -185,6 +250,11 @@ function setupWSHandlers(): void {
     if (result.text) {
       showDesktopNotification(data.from, result.text);
     }
+  });
+
+  on(WS_MSG_TYPE.SEALED_MESSAGE, async (raw) => {
+    const data = raw as WsServerSealedMessage;
+    await handleSealedIncoming(data.envelope, data.timestamp, data.dbId);
   });
 
   on(WS_MSG_TYPE.DELIVERED, (raw) => {
@@ -240,6 +310,7 @@ function logout(): void {
   setRefreshToken(null);
   setCurrentUser(null);
   resetStore();
+  clearSenderCertCache();
   clearEncryptionKey();
   clearAll();
   showAuth();

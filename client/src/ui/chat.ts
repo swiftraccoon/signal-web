@@ -1,6 +1,8 @@
 import { STORES, get, put, putDebounced } from '../storage/indexeddb';
 import QRCode from 'qrcode';
-import { encryptMessage, decryptMessage } from '../signal/client';
+import { encryptMessage, decryptMessage, getStore } from '../signal/client';
+import { sealMessage } from '../signal/sealed';
+import { getSenderCertificate } from '../signal/senderCertCache';
 import { send as wsSend, on as wsOn, requeueMessage } from '../ws';
 import { getContactInfo, updateLastMessage } from './contacts';
 import { showToast } from './notifications';
@@ -66,12 +68,38 @@ export function initChat(): void {
       const rnd = crypto.getRandomValues(new Uint32Array(1))[0]!.toString(36);
       const msgId = Date.now().toString(36) + rnd;
 
-      wsSend({
-        type: WS_MSG_TYPE.MESSAGE,
-        to: currentChat,
-        message: encrypted,
-        id: msgId,
-      });
+      // Try sealed sender (hides sender identity from server)
+      let sentSealed = false;
+      try {
+        const store = getStore();
+        // Identity keys are stored under encoded address format: "username.deviceId"
+        const recipientIdentityKey = await store.loadIdentityKey(`${currentChat}.1`);
+        if (recipientIdentityKey) {
+          const { ab2b64 } = await import('../signal/store');
+          const recipientKeyB64 = ab2b64(recipientIdentityKey);
+          const cert = await getSenderCertificate();
+          const envelope = await sealMessage(recipientKeyB64, cert, encrypted);
+          wsSend({
+            type: WS_MSG_TYPE.SEALED_MESSAGE,
+            recipientId: contact.id,
+            envelope,
+            id: msgId,
+          });
+          sentSealed = true;
+        }
+      } catch (sealErr) {
+        console.warn('Sealed sender unavailable, falling back to regular send:', sealErr);
+      }
+
+      // Fallback to regular send if sealing failed
+      if (!sentSealed) {
+        wsSend({
+          type: WS_MSG_TYPE.MESSAGE,
+          to: currentChat,
+          message: encrypted,
+          id: msgId,
+        });
+      }
 
       const msg: ChatMessage = {
         text,

@@ -15,6 +15,7 @@
     "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.client.json --noEmit"
   },
   "dependencies": {
+    "@node-rs/argon2": "^2.0.2",
     "@privacyresearch/libsignal-protocol-typescript": "^0.0.12",
     "bcrypt": "^6.0.0",
     "better-sqlite3": "^11.7.0",

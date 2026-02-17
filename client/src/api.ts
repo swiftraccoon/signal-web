@@ -1,6 +1,7 @@
 import type {
   ApiUser, AuthResponse, PreKeyBundleUpload, PreKeyBundleResponse,
   PreKeyPublic, KeyCountResponse, PendingMessage, WsTicketResponse,
+  SenderCertificate, ServerKeyResponse,
 } from '../../shared/types';
 
 // Token is kept in memory only -- never persisted to localStorage.
@@ -127,6 +128,12 @@ const api = {
 
   getWsTicket: () =>
     request<WsTicketResponse>('/api/auth/ws-ticket', { method: 'POST' }),
+
+  getSenderCert: () =>
+    request<SenderCertificate>('/api/keys/sender-cert', { method: 'POST' }),
+
+  getServerKey: () =>
+    request<ServerKeyResponse>('/api/keys/server-key'),
 };
 
 export { api, setToken, getToken, setRefreshToken, setCurrentUser, getCurrentUser };

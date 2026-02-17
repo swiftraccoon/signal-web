@@ -2,10 +2,11 @@ import express, { Request, Response } from 'express';
 import { authenticateToken } from '../middleware/auth';
 import { stmt, getPreKeyBundle, uploadBundle } from '../db';
 import { audit } from '../audit';
+import { issueSenderCertificate, getServerPublicKey } from '../senderCert';
 import { PREKEY_LOW_THRESHOLD, WS_MSG_TYPE } from '../../shared/constants';
 import { getConnection, isOnline } from '../ws/connections';
 import logger from '../logger';
-import type { DbUser, DbCount, BundleFetchEntry, PreKeyBundleUpload, PreKeyPublic } from '../../shared/types';
+import type { DbUser, DbIdentityKey, DbCount, BundleFetchEntry, PreKeyBundleUpload, PreKeyPublic } from '../../shared/types';
 
 const router = express.Router();
 
@@ -179,6 +180,28 @@ router.get('/count', authenticateToken, (req: Request, res: Response) => {
     logger.error({ err, userId: req.user!.id }, 'Key count error');
     res.status(500).json({ error: 'Failed to get key count' });
   }
+});
+
+// Issue a signed sender certificate for sealed sender
+router.post('/sender-cert', authenticateToken, (req: Request, res: Response) => {
+  try {
+    const identity = stmt.getIdentityKey.get(req.user!.id) as DbIdentityKey | undefined;
+    if (!identity) {
+      res.status(404).json({ error: 'No identity key registered. Upload a bundle first.' });
+      return;
+    }
+
+    const cert = issueSenderCertificate(req.user!.id, req.user!.username, identity.identity_key);
+    res.json(cert);
+  } catch (err) {
+    logger.error({ err, userId: req.user!.id }, 'Sender certificate error');
+    res.status(500).json({ error: 'Failed to issue sender certificate' });
+  }
+});
+
+// Return the server's Ed25519 public key (for client-side certificate verification)
+router.get('/server-key', (_req: Request, res: Response) => {
+  res.json({ publicKey: getServerPublicKey() });
 });
 
 export default router;

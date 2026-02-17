@@ -128,6 +128,15 @@ export interface WsTicketResponse {
   ticket: string;
 }
 
+export interface SenderCertificate {
+  payload: string;   // base64-encoded JSON { userId, username, identityKey, expires }
+  signature: string;  // base64-encoded Ed25519 signature
+}
+
+export interface ServerKeyResponse {
+  publicKey: string;  // base64-encoded SPKI DER
+}
+
 // ===== Server Types =====
 
 export interface ServerConfig {

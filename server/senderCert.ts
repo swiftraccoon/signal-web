@@ -87,3 +87,7 @@ export function verifySenderCertificate(cert: SenderCertificate): SenderCertPayl
 export function getServerPublicKey(): string {
   return publicKey.export({ type: 'spki', format: 'der' }).toString('base64');
 }
+
+export function getSigningKey(): crypto.KeyObject {
+  return signingKey;
+}

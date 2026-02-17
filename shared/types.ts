@@ -148,6 +148,23 @@ export interface ServerKeyResponse {
   publicKey: string;  // base64-encoded SPKI DER
 }
 
+export interface KeyLogEntry {
+  sequence: number;
+  userId: number;
+  identityKey: string;
+  previousHash: string;
+  entryHash: string;
+  signature: string;
+  timestamp: string;
+}
+
+export interface KeyLogProof {
+  sequence: number;
+  entryHash: string;
+  signature: string;
+  timestamp: string;
+}
+
 // ===== Server Types =====
 
 export interface ServerConfig {

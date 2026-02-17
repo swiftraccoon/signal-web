@@ -109,6 +109,20 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_sealed_messages_recipient ON sealed_messages(recipient_id, delivered, timestamp);
   CREATE INDEX IF NOT EXISTS idx_sealed_messages_expires ON sealed_messages(expires_at) WHERE expires_at IS NOT NULL;
+
+  -- Key transparency: append-only hash-chained identity key log
+  CREATE TABLE IF NOT EXISTS key_log (
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    identity_key TEXT NOT NULL,
+    previous_hash TEXT NOT NULL,
+    entry_hash TEXT NOT NULL UNIQUE,
+    signature TEXT NOT NULL,
+    timestamp TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_key_log_user ON key_log(user_id, sequence);
+  CREATE INDEX IF NOT EXISTS idx_key_log_hash ON key_log(entry_hash);
 `);
 
 // Add columns to existing tables if they don't exist (migration-safe)
@@ -219,6 +233,13 @@ const stmt = {
   getConversationTimer: timedStmt(db.prepare('SELECT disappearing_timer_ms FROM conversation_settings WHERE user_id_1 = MIN(?, ?) AND user_id_2 = MAX(?, ?)'), 'getConversationTimer'),
   storeMessageWithExpiry: timedStmt(db.prepare('INSERT INTO messages (sender_id, recipient_id, type, body, expires_at, original_id) VALUES (?, ?, ?, ?, ?, ?)'), 'storeMessageWithExpiry'),
   purgeExpiredMessages: timedStmt(db.prepare('DELETE FROM messages WHERE expires_at IS NOT NULL AND expires_at < unixepoch()'), 'purgeExpiredMessages'),
+
+  // Key transparency log
+  getLatestKeyLogEntry: timedStmt(db.prepare('SELECT sequence, entry_hash FROM key_log ORDER BY sequence DESC LIMIT 1'), 'getLatestKeyLogEntry'),
+  appendKeyLog: timedStmt(db.prepare('INSERT INTO key_log (user_id, identity_key, previous_hash, entry_hash, signature) VALUES (?, ?, ?, ?, ?)'), 'appendKeyLog'),
+  getKeyLogForUser: timedStmt(db.prepare('SELECT sequence, user_id, identity_key, previous_hash, entry_hash, signature, timestamp FROM key_log WHERE user_id = ? ORDER BY sequence'), 'getKeyLogForUser'),
+  getKeyLogRange: timedStmt(db.prepare('SELECT sequence, user_id, identity_key, previous_hash, entry_hash, signature, timestamp FROM key_log WHERE sequence > ? ORDER BY sequence LIMIT ?'), 'getKeyLogRange'),
+  getKeyLogLatestForUser: timedStmt(db.prepare('SELECT sequence, entry_hash, signature, timestamp FROM key_log WHERE user_id = ? ORDER BY sequence DESC LIMIT 1'), 'getKeyLogLatestForUser'),
 
   // Sealed sender messages
   storeSealedMessage: timedStmt(db.prepare('INSERT INTO sealed_messages (recipient_id, envelope, expires_at) VALUES (?, ?, ?)'), 'storeSealedMessage'),

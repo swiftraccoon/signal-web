@@ -1,7 +1,7 @@
 import type {
   ApiUser, AuthResponse, PreKeyBundleUpload, PreKeyBundleResponse,
   PreKeyPublic, KeyCountResponse, PendingMessage, PendingSealedMessage,
-  WsTicketResponse, SenderCertificate, ServerKeyResponse,
+  WsTicketResponse, SenderCertificate, ServerKeyResponse, KeyLogEntry,
 } from '../../shared/types';
 
 // Token is kept in memory only -- never persisted to localStorage.
@@ -137,6 +137,12 @@ const api = {
 
   getServerKey: () =>
     request<ServerKeyResponse>('/api/keys/server-key'),
+
+  getKeyLog: (userId: number) =>
+    request<KeyLogEntry[]>(`/api/keys/key-log/${userId}`),
+
+  getKeyLogRange: (after: number, limit = 100) =>
+    request<KeyLogEntry[]>(`/api/keys/key-log?after=${after}&limit=${limit}`),
 };
 
 export { api, setToken, getToken, setRefreshToken, setCurrentUser, getCurrentUser };

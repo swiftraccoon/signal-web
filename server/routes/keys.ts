@@ -3,6 +3,7 @@ import { authenticateToken } from '../middleware/auth';
 import { stmt, getPreKeyBundle, uploadBundle } from '../db';
 import { audit } from '../audit';
 import { issueSenderCertificate, getServerPublicKey } from '../senderCert';
+import { appendToKeyLog, getKeyLogForUser, getKeyLogRange, getLatestKeyLogForUser } from '../keyLog';
 import { PREKEY_LOW_THRESHOLD, WS_MSG_TYPE } from '../../shared/constants';
 import { getConnection, isOnline } from '../ws/connections';
 import logger from '../logger';
@@ -62,6 +63,10 @@ router.put('/bundle', authenticateToken, (req: Request, res: Response) => {
     }
 
     uploadBundle(req.user!.id, bundle);
+
+    // Append identity key to transparency log
+    appendToKeyLog(req.user!.id, bundle.identityKey);
+
     audit('bundle_uploaded', { userId: req.user!.id, username: req.user!.username, ip: req.ip, details: `${bundle.preKeys.length} pre-keys` });
     res.json({ success: true });
   } catch (err) {
@@ -126,6 +131,12 @@ router.get('/bundle/:userId', authenticateToken, (req: Request, res: Response) =
 
     bundle.userId = userId;
     bundle.username = user.username;
+
+    // Include key transparency proof in bundle response
+    const keyLogProof = getLatestKeyLogForUser(userId);
+    if (keyLogProof) {
+      bundle.keyLogProof = keyLogProof;
+    }
 
     // Warn the target user if their pre-keys are running low
     const { count } = stmt.countOneTimePreKeys.get(userId) as DbCount;
@@ -202,6 +213,53 @@ router.post('/sender-cert', authenticateToken, (req: Request, res: Response) => 
 // Return the server's Ed25519 public key (for client-side certificate verification)
 router.get('/server-key', (_req: Request, res: Response) => {
   res.json({ publicKey: getServerPublicKey() });
+});
+
+// Key transparency: get a user's full key log history
+router.get('/key-log/:userId', authenticateToken, (req: Request, res: Response) => {
+  try {
+    const userId = parseInt(req.params['userId'] as string, 10);
+    if (isNaN(userId)) {
+      res.status(400).json({ error: 'Invalid user ID' });
+      return;
+    }
+
+    const entries = getKeyLogForUser(userId);
+    res.json(entries.map(e => ({
+      sequence: e.sequence,
+      userId: e.user_id,
+      identityKey: e.identity_key,
+      previousHash: e.previous_hash,
+      entryHash: e.entry_hash,
+      signature: e.signature,
+      timestamp: e.timestamp,
+    })));
+  } catch (err) {
+    logger.error({ err, userId: req.user!.id }, 'Key log fetch error');
+    res.status(500).json({ error: 'Failed to fetch key log' });
+  }
+});
+
+// Key transparency: get recent log entries (for gossip/sync)
+router.get('/key-log', authenticateToken, (req: Request, res: Response) => {
+  try {
+    const after = parseInt(req.query['after'] as string || '0', 10);
+    const limit = Math.min(parseInt(req.query['limit'] as string || '100', 10), 1000);
+
+    const entries = getKeyLogRange(after, limit);
+    res.json(entries.map(e => ({
+      sequence: e.sequence,
+      userId: e.user_id,
+      identityKey: e.identity_key,
+      previousHash: e.previous_hash,
+      entryHash: e.entry_hash,
+      signature: e.signature,
+      timestamp: e.timestamp,
+    })));
+  } catch (err) {
+    logger.error({ err, userId: req.user!.id }, 'Key log range error');
+    res.status(500).json({ error: 'Failed to fetch key log' });
+  }
 });
 
 export default router;

@@ -110,6 +110,7 @@ export interface PreKeyBundleResponse {
   preKey: PreKeyPublic | null;
   userId?: number;
   username?: string;
+  keyLogProof?: KeyLogProof;
 }
 
 export interface PendingMessage {

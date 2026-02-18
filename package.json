@@ -41,7 +41,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",
-    "@lavamoat/allow-scripts": "^2.5.1",
+    "@lavamoat/allow-scripts": "3.4.3",
     "@lavamoat/preinstall-always-fail": "^2.1.1",
     "@types/bcrypt": "^6.0.0",
     "@types/better-sqlite3": "^7.6.13",

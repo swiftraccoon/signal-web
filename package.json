@@ -18,7 +18,8 @@
     "prepare": "husky",
     "lint:lockfile": "lockfile-lint",
     "lint:licenses": "license-checker-rseidelsohn --production --onlyAllow 'MIT;ISC;BSD-2-Clause;BSD-3-Clause;Apache-2.0;0BSD;CC0-1.0;CC-BY-3.0;CC-BY-4.0;BlueOak-1.0.0;Unlicense;Python-2.0;GPL-3.0-only' --excludePackages 'signal-web'",
-    "deps:check": "depcheck --ignores='esbuild,concurrently,tsx,@types/*,@vitest/*,husky,lint-staged,@lavamoat/*,lockfile-lint,license-checker-rseidelsohn,depcheck,eslint,@eslint/*,typescript-eslint,eslint-plugin-*'"
+    "deps:check": "depcheck --ignores='esbuild,concurrently,tsx,@types/*,@vitest/*,husky,lint-staged,@lavamoat/*,lockfile-lint,license-checker-rseidelsohn,depcheck,eslint,@eslint/*,typescript-eslint,eslint-plugin-*'",
+    "scan:semgrep": "semgrep scan --config .semgrep.yml --config auto --config p/owasp-top-ten"
   },
   "dependencies": {
     "@node-rs/argon2": "^2.0.2",

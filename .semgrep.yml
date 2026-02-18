@@ -1,0 +1,101 @@
+rules:
+  # Rule 1: Flag Math.random() in crypto-related files
+  # Math.random() is not cryptographically secure. Files in the signal/ directory
+  # and server crypto modules must use crypto.getRandomValues() or crypto.randomBytes().
+  - id: no-math-random-in-crypto
+    pattern: Math.random()
+    message: >-
+      Math.random() is not cryptographically secure. In crypto-related code,
+      use crypto.getRandomValues() (browser) or crypto.randomBytes() (Node.js)
+      for all randomness generation.
+    languages: [typescript, javascript]
+    severity: ERROR
+    paths:
+      include:
+        - /client/src/signal/
+        - /server/audit.ts
+        - /server/senderCert.ts
+        - /server/keyLog.ts
+
+  # Rule 2: Flag importing X25519 private keys with 'raw' format
+  # The W3C Web Crypto spec requires 'pkcs8' format for X25519 private keys.
+  # Using 'raw' works in Chrome/Node.js but breaks in Firefox.
+  # Note: 'raw' format for X25519 PUBLIC keys (with empty usages []) is correct,
+  # so this rule specifically targets imports with 'deriveBits' usage (private key ops).
+  - id: no-raw-x25519-private-key-import
+    pattern-either:
+      - pattern: |
+          crypto.subtle.importKey('raw', $KEY, {name: 'X25519'}, $EXTRACT, ['deriveBits'])
+      - pattern: |
+          crypto.subtle.importKey('raw', $KEY, {name: 'X25519'}, $EXTRACT, ['deriveKey'])
+      - pattern: |
+          crypto.subtle.importKey('raw', $KEY, {name: 'X25519'}, $EXTRACT, ['deriveBits', 'deriveKey'])
+    message: >-
+      X25519 private keys must use 'pkcs8' format, not 'raw'. The W3C Web Crypto
+      spec only defines 'raw' format for X25519 public keys. Using 'raw' for
+      private keys works in Chrome/Node.js but breaks in Firefox. Wrap raw key
+      bytes in PKCS8 DER encoding before import.
+    languages: [typescript, javascript]
+    severity: ERROR
+
+  # Rule 3: Flag hardcoded IV/nonce values
+  # IVs and nonces must be randomly generated via crypto.getRandomValues(),
+  # never assigned to hardcoded byte arrays.
+  - id: no-hardcoded-iv
+    pattern-either:
+      - pattern: |
+          {name: 'AES-GCM', iv: new Uint8Array([...])}
+      - pattern: |
+          const iv = new Uint8Array([...]);
+      - pattern: |
+          let iv = new Uint8Array([...]);
+      - pattern: |
+          var iv = new Uint8Array([...]);
+      - pattern: |
+          const nonce = new Uint8Array([...]);
+      - pattern: |
+          let nonce = new Uint8Array([...]);
+      - pattern: |
+          var nonce = new Uint8Array([...]);
+    message: >-
+      Hardcoded IV/nonce detected. IVs and nonces must be generated using
+      crypto.getRandomValues() for each encryption operation. Reusing or
+      hardcoding an IV with AES-GCM completely breaks its security guarantees.
+    languages: [typescript, javascript]
+    severity: ERROR
+    paths:
+      include:
+        - /client/src/signal/
+        - /server/
+
+  # Rule 4: Warn about sensitive key buffers not being zeroed
+  # Best-effort check: flags common patterns where private key or secret key
+  # buffers are used without a subsequent zeroing call. Given JS GC limitations,
+  # this is advisory only.
+  - id: missing-buffer-zero
+    patterns:
+      - pattern-either:
+          - pattern: |
+              const $KEY = new Uint8Array($BUF)
+          - pattern: |
+              let $KEY = new Uint8Array($BUF)
+      - metavariable-regex:
+          metavariable: $KEY
+          regex: (priv|secret|private|rawKey|keyBytes|pkcs8)
+      - pattern-not-inside: |
+          ...
+          $KEY.fill(0)
+          ...
+      - pattern-not-inside: |
+          ...
+          zeroArrayBuffer(...)
+          ...
+    message: >-
+      Sensitive key buffer '$KEY' in signal/ code is not zeroed after use.
+      Call $KEY.fill(0) or zeroArrayBuffer($KEY.buffer) after the key material
+      is no longer needed to limit the exposure window.
+    languages: [typescript, javascript]
+    severity: WARNING
+    paths:
+      include:
+        - /client/src/signal/

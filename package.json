@@ -15,7 +15,10 @@
     "lint": "eslint server/ client/src/ shared/ tests/",
     "lint:security": "eslint --max-warnings=0 server/ client/src/ shared/ tests/",
     "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.client.json --noEmit",
-    "prepare": "husky"
+    "prepare": "husky",
+    "lint:lockfile": "lockfile-lint",
+    "lint:licenses": "license-checker-rseidelsohn --production --onlyAllow 'MIT;ISC;BSD-2-Clause;BSD-3-Clause;Apache-2.0;0BSD;CC0-1.0;CC-BY-3.0;CC-BY-4.0;BlueOak-1.0.0;Unlicense;Python-2.0;GPL-3.0-only' --excludePackages 'signal-web'",
+    "deps:check": "depcheck --ignores='esbuild,concurrently,tsx,@types/*,@vitest/*,husky,lint-staged,@lavamoat/*,lockfile-lint,license-checker-rseidelsohn,depcheck,eslint,@eslint/*,typescript-eslint,eslint-plugin-*'"
   },
   "dependencies": {
     "@node-rs/argon2": "^2.0.2",
@@ -37,6 +40,8 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",
+    "@lavamoat/allow-scripts": "^2.5.1",
+    "@lavamoat/preinstall-always-fail": "^2.1.1",
     "@types/bcrypt": "^6.0.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/compression": "^1.8.1",
@@ -47,6 +52,7 @@
     "@types/ws": "^8.18.1",
     "@vitest/coverage-v8": "^4.0.18",
     "concurrently": "^9.1.2",
+    "depcheck": "^1.4.7",
     "esbuild": "^0.27.3",
     "eslint": "^9.39.2",
     "eslint-plugin-no-secrets": "^2.2.2",
@@ -54,7 +60,9 @@
     "eslint-plugin-security": "^3.0.1",
     "eslint-plugin-sonarjs": "^3.0.7",
     "husky": "^9.1.7",
+    "license-checker-rseidelsohn": "^4.4.2",
     "lint-staged": "^16.2.7",
+    "lockfile-lint": "^5.0.0",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.56.0",
@@ -70,5 +78,14 @@
       "bash scripts/check-unprotected-routes.sh",
       "bash scripts/check-rate-limiters.sh"
     ]
+  },
+  "lavamoat": {
+    "allowScripts": {
+      "esbuild": true,
+      "bcrypt": true,
+      "@node-rs/argon2": true,
+      "better-sqlite3": true,
+      "@lavamoat/preinstall-always-fail": false
+    }
   }
 }

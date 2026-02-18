@@ -16,6 +16,34 @@ async function importX25519Public(raw: ArrayBuffer): Promise<CryptoKey> {
   return crypto.subtle.importKey('raw', raw, { name: 'X25519' }, false, []);
 }
 
+// PKCS8 DER prefix for X25519 private keys (RFC 8410).
+// The W3C Web Crypto spec only defines 'raw' format for X25519 PUBLIC keys;
+// private keys must use 'pkcs8'. Some runtimes (Node.js, Chrome) accept raw
+// private keys as an extension, but Firefox follows the spec strictly.
+const X25519_PKCS8_PREFIX = new Uint8Array([
+  0x30, 0x2e,             // SEQUENCE (46 bytes)
+  0x02, 0x01, 0x00,       //   INTEGER 0 (version)
+  0x30, 0x05,             //   SEQUENCE (5 bytes)
+  0x06, 0x03, 0x2b, 0x65, 0x6e, // OID 1.3.101.110 (X25519)
+  0x04, 0x22,             //   OCTET STRING (34 bytes)
+  0x04, 0x20,             //     OCTET STRING (32 bytes) — the raw key
+]);
+
+// Import raw X25519 private key (32 bytes) as a CryptoKey via PKCS8 wrapping
+async function importX25519Private(rawKey: ArrayBuffer): Promise<CryptoKey> {
+  const pkcs8 = new Uint8Array(X25519_PKCS8_PREFIX.length + 32);
+  pkcs8.set(X25519_PKCS8_PREFIX);
+  pkcs8.set(new Uint8Array(rawKey), X25519_PKCS8_PREFIX.length);
+  try {
+    return await crypto.subtle.importKey(
+      'pkcs8', pkcs8.buffer as ArrayBuffer, { name: 'X25519' }, false, ['deriveBits'],
+    );
+  } finally {
+    // Zero the PKCS8 buffer (contains raw private key bytes)
+    pkcs8.fill(0);
+  }
+}
+
 // Generate ephemeral X25519 key pair
 async function generateEphemeralKeyPair(): Promise<CryptoKeyPair> {
   return crypto.subtle.generateKey({ name: 'X25519' }, false, ['deriveBits']) as Promise<CryptoKeyPair>;
@@ -70,6 +98,7 @@ interface SealedPayload {
 
 const SEALED_SENDER_VERSION = 1;
 const HKDF_INFO = new TextEncoder().encode('signal-web-sealed-sender-v1');
+const CLOCK_SKEW_TOLERANCE_SECONDS = 300; // IMP-5: 5-minute tolerance for clock drift
 
 /**
  * Seal an encrypted message so the server cannot see who sent it.
@@ -152,10 +181,13 @@ export async function unsealMessage(
     throw new Error(`Unknown sealed sender version: ${envelope.version}`);
   }
 
-  // Import recipient's private key for X25519
-  const privKey = await crypto.subtle.importKey(
-    'raw', identityPrivateKey, { name: 'X25519' }, false, ['deriveBits'],
-  );
+  // CRIT-5 fix: validate private key length before import
+  if (identityPrivateKey.byteLength !== 32) {
+    throw new Error('Identity private key must be exactly 32 bytes');
+  }
+
+  // Import recipient's private key for X25519 (PKCS8 format required by spec)
+  const privKey = await importX25519Private(identityPrivateKey);
 
   // Import sender's ephemeral public key
   const ephemeralPubBytes = b642ab(envelope.ephemeralKey);
@@ -192,25 +224,60 @@ export async function setServerPublicKey(spkiBase64: string): Promise<void> {
   );
 }
 
+/**
+ * CRIT-2: Verify a key log entry's Ed25519 signature and hash integrity.
+ * Prevents a malicious server from fabricating key log entries.
+ */
+export async function verifyKeyLogEntry(entry: {
+  sequence: number; userId: number; identityKey: string;
+  previousHash: string; entryHash: string; signature: string;
+}): Promise<boolean> {
+  if (!cachedServerKey) return false;
+
+  try {
+    // Recompute hash from entry fields (must match server's computeEntryHash format)
+    const preimage = `${entry.sequence}:${entry.userId}:${entry.identityKey}:${entry.previousHash}`;
+    const hashBuffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(preimage));
+    const hashHex = Array.from(new Uint8Array(hashBuffer))
+      .map(b => b.toString(16).padStart(2, '0')).join('');
+
+    // Verify computed hash matches claimed hash
+    if (hashHex !== entry.entryHash) return false;
+
+    // Verify Ed25519 signature over the entry hash string
+    const signatureBytes = Uint8Array.from(atob(entry.signature), c => c.charCodeAt(0));
+    const hashBytes = new TextEncoder().encode(entry.entryHash);
+
+    return await crypto.subtle.verify({ name: 'Ed25519' }, cachedServerKey, signatureBytes, hashBytes);
+  } catch {
+    return false;
+  }
+}
+
 export async function verifySenderCertificate(cert: SenderCertificate): Promise<{
   userId: number; username: string; identityKey: string; expires: number;
 } | null> {
   if (!cachedServerKey) return null;
 
-  const payloadBytes = Uint8Array.from(atob(cert.payload), c => c.charCodeAt(0));
-  const signatureBytes = Uint8Array.from(atob(cert.signature), c => c.charCodeAt(0));
+  try {
+    const payloadBytes = Uint8Array.from(atob(cert.payload), c => c.charCodeAt(0));
+    const signatureBytes = Uint8Array.from(atob(cert.signature), c => c.charCodeAt(0));
 
-  const valid = await crypto.subtle.verify(
-    { name: 'Ed25519' }, cachedServerKey, signatureBytes, payloadBytes,
-  );
-  if (!valid) return null;
+    const valid = await crypto.subtle.verify(
+      { name: 'Ed25519' }, cachedServerKey, signatureBytes, payloadBytes,
+    );
+    if (!valid) return null;
 
-  const payload = JSON.parse(new TextDecoder().decode(payloadBytes)) as {
-    userId: number; username: string; identityKey: string; expires: number;
-  };
+    const payload = JSON.parse(new TextDecoder().decode(payloadBytes)) as {
+      userId: number; username: string; identityKey: string; expires: number;
+    };
 
-  // Check expiry
-  if (payload.expires < Math.floor(Date.now() / 1000)) return null;
+    // Check expiry (IMP-5: with clock skew tolerance)
+    if (payload.expires + CLOCK_SKEW_TOLERANCE_SECONDS < Math.floor(Date.now() / 1000)) return null;
 
-  return payload;
+    return payload;
+  } catch (err) {
+    console.error('Sender certificate verification failed:', err);
+    return null;
+  }
 }

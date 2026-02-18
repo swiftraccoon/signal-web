@@ -1,5 +1,6 @@
 import express, { Request, Response } from 'express';
 import { authenticateToken } from '../middleware/auth';
+import { senderCertLimiter } from '../middleware/rateLimiter';
 import { stmt, getPreKeyBundle, uploadBundle } from '../db';
 import { audit } from '../audit';
 import { issueSenderCertificate, getServerPublicKey } from '../senderCert';
@@ -193,8 +194,8 @@ router.get('/count', authenticateToken, (req: Request, res: Response) => {
   }
 });
 
-// Issue a signed sender certificate for sealed sender
-router.post('/sender-cert', authenticateToken, (req: Request, res: Response) => {
+// Issue a signed sender certificate for sealed sender (IMP-8: dedicated rate limit)
+router.post('/sender-cert', authenticateToken, senderCertLimiter, (req: Request, res: Response) => {
   try {
     const identity = stmt.getIdentityKey.get(req.user!.id) as DbIdentityKey | undefined;
     if (!identity) {
@@ -210,8 +211,8 @@ router.post('/sender-cert', authenticateToken, (req: Request, res: Response) => 
   }
 });
 
-// Return the server's Ed25519 public key (for client-side certificate verification)
-router.get('/server-key', (_req: Request, res: Response) => {
+// IMP-3 fix: require authentication to fetch server key (trust anchor endpoint)
+router.get('/server-key', authenticateToken, (_req: Request, res: Response) => {
   res.json({ publicKey: getServerPublicKey() });
 });
 

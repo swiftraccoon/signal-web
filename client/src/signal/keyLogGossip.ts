@@ -8,6 +8,7 @@
 
 import { STORES, get, put } from '../storage/indexeddb';
 import { api } from '../api';
+import { verifyKeyLogEntry } from './sealed';
 
 interface StoredKeyLogProof {
   sequence: number;
@@ -70,6 +71,16 @@ export async function verifyGossipHash(senderUserId: number, claimedHash: string
     const log = await api.getKeyLog(senderUserId);
     if (log.length > 0) {
       const latest = log[log.length - 1]!;
+
+      // CRIT-2: Verify Ed25519 signature before trusting server-provided entry
+      const sigValid = await verifyKeyLogEntry(latest);
+      if (!sigValid) {
+        return {
+          consistent: false,
+          details: `Key log entry for user ${senderUserId} has invalid signature — server may be forging entries`,
+        };
+      }
+
       if (latest.entryHash === claimedHash) {
         // Claimed hash matches the server's current view — sender just updated their key
         await storeKeyLogProof(senderUserId, { sequence: latest.sequence, entryHash: latest.entryHash });
@@ -77,8 +88,12 @@ export async function verifyGossipHash(senderUserId: number, claimedHash: string
       }
     }
   } catch {
-    // Can't verify right now — don't raise a false alarm
-    return { consistent: true };
+    // CRIT-3 fix: network failure during verification is indeterminate, not consistent.
+    // A state-level adversary could cause this failure to suppress the alert.
+    return {
+      consistent: false,
+      details: `Key log verification inconclusive for user ${senderUserId}: network error during cross-check. Hash mismatch detected but could not resolve.`,
+    };
   }
 
   return {

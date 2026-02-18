@@ -1,4 +1,5 @@
 import WebSocket from 'ws';
+import crypto from 'crypto';
 import { getConnection, isOnline } from './connections';
 import { stmt } from '../db';
 import { WS_MSG_TYPE } from '../../shared/constants';
@@ -61,6 +62,9 @@ async function handleMessage(ws: WebSocket, user: WsUser, msg: Record<string, un
       return;
     case WS_MSG_TYPE.ACK:
       handleAck(user, msg);
+      return;
+    case 'ping':
+      send(ws, { type: 'pong' });
       return;
     default:
       sendError(ws, 'Unknown message type');
@@ -202,12 +206,20 @@ async function handleSealedMessage(ws: WebSocket, sender: WsUser, msg: Record<st
   const timestamp = new Date().toISOString();
   const envelopeJson = JSON.stringify(envelope);
 
-  // Store sealed message — server has NO sender_id column
+  // IMP-1: Store sealed message with original_id and sender_hash for DB-level replay protection.
+  // sender_hash is a one-way hash of the sender ID (preserves sender privacy while enabling dedup).
+  const senderHash = crypto.createHash('sha256').update(`sealed:${sender.id}`).digest('hex').slice(0, 16);
   let storedMsgId: number | bigint;
   try {
-    const result = stmt.storeSealedMessage.run(recipientId, envelopeJson, null);
+    const result = stmt.storeSealedMessage.run(recipientId, envelopeJson, null, msg.id, senderHash);
     storedMsgId = result.lastInsertRowid;
   } catch (err) {
+    // IMP-1: UNIQUE constraint violation = replay detected at DB level
+    const errMsg = (err as Error).message || '';
+    if (errMsg.includes('UNIQUE constraint')) {
+      sendError(ws, 'Duplicate message ID');
+      return;
+    }
     logger.error({ err, recipientId }, 'Failed to store sealed message');
     sendError(ws, 'Failed to send message');
     return;
@@ -234,7 +246,8 @@ async function handleSealedMessage(ws: WebSocket, sender: WsUser, msg: Record<st
 
 function handleAck(user: WsUser, msg: Record<string, unknown>): void {
   // Client acknowledges receipt of a message - now we can mark it delivered
-  if (!msg.dbId || typeof msg.dbId !== 'number') return;
+  // IMP-6 fix: validate dbId is a positive safe integer
+  if (!msg.dbId || typeof msg.dbId !== 'number' || !Number.isInteger(msg.dbId) || msg.dbId < 1) return;
 
   // Try regular messages first (has sender_id for delivery notification)
   const result = stmt.markDeliveredAndGetSender.get(msg.dbId, user.id) as DbMarkDeliveredResult | undefined;

@@ -14,7 +14,7 @@ import {
   setWebCrypto,
 } from '@privacyresearch/libsignal-protocol-typescript';
 
-const BASE = 'http://localhost:3001';
+const BASE = process.env.E2E_BASE_URL || 'http://localhost:3001';
 const DEVICE_ID = 1;
 
 // Provide Node.js Web Crypto to the Signal library
@@ -97,21 +97,10 @@ async function connectWS(token: string): Promise<WebSocket> {
   const ticket = ticketRes.body.ticket;
 
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`ws://localhost:3001?ticket=${ticket}`);
-    // Wait for the initial presence message, then resolve
-    let resolved = false;
-    ws.on('message', (data: WebSocket.Data) => {
-      if (!resolved) {
-        const msg = JSON.parse(data.toString()) as { type: string };
-        if (msg.type === 'presence') {
-          resolved = true;
-          resolve(ws);
-        }
-      }
-    });
+    const wsUrl = BASE.replace('http', 'ws');
+    const ws = new WebSocket(`${wsUrl}?ticket=${ticket}`);
+    ws.on('open', () => resolve(ws));
     ws.on('error', reject);
-    // Fallback timeout in case no presence message
-    setTimeout(() => { if (!resolved) { resolved = true; resolve(ws); } }, 2000);
   });
 }
 
@@ -120,8 +109,6 @@ function waitForMessage<T extends { type: string }>(ws: WebSocket, type: string,
     const timer = setTimeout(() => reject(new Error(`Timeout waiting for ${type}`)), timeout);
     const handler = (data: WebSocket.Data) => {
       const msg = JSON.parse(data.toString()) as T;
-      // Skip presence messages unless specifically waiting for them
-      if ((msg as { type: string }).type === 'presence' && type !== 'presence') return;
       if (!type || (msg as { type: string }).type === type) {
         clearTimeout(timer);
         ws.off('message', handler);
@@ -461,7 +448,8 @@ async function runTest() {
 
   // Query the database directly to verify stored message is ciphertext
   const Database = require('better-sqlite3');
-  const dbInst = new Database(process.env.DB_PATH || './signal-web.db');
+  const dbPath = process.env.DB_PATH || './signal-web.db';
+  const dbInst = new Database(dbPath);
   const storedMsg = dbInst.prepare('SELECT body FROM messages ORDER BY id DESC LIMIT 1').get() as { body: string } | undefined;
   if (storedMsg) {
     assert(storedMsg.body !== offlinePlaintext, 'DB body is NOT plaintext');

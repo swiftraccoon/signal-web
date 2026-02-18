@@ -45,6 +45,7 @@ interface SenderCertPayload {
 }
 
 const CERT_EXPIRY_SECONDS = 24 * 60 * 60; // 24 hours
+const CLOCK_SKEW_TOLERANCE_SECONDS = 300; // IMP-5: 5-minute tolerance for clock drift
 
 export function issueSenderCertificate(userId: number, username: string, identityKey: string): SenderCertificate {
   const payload: SenderCertPayload = {
@@ -75,8 +76,8 @@ export function verifySenderCertificate(cert: SenderCertificate): SenderCertPayl
 
     const payload = JSON.parse(payloadBytes.toString()) as SenderCertPayload;
 
-    // Check expiry
-    if (payload.expires < Math.floor(Date.now() / 1000)) return null;
+    // Check expiry (IMP-5: with clock skew tolerance)
+    if (payload.expires + CLOCK_SKEW_TOLERANCE_SECONDS < Math.floor(Date.now() / 1000)) return null;
 
     return payload;
   } catch {

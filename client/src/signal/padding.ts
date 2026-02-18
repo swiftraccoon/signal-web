@@ -39,13 +39,15 @@ export function pad(plaintext: Uint8Array): Uint8Array {
 }
 
 export function unpad(padded: Uint8Array): Uint8Array {
+  // IMP-4 fix: single opaque error for all validation failures to prevent
+  // information leakage about padding structure via distinct error paths.
   if (padded.length < HEADER_SIZE) {
-    throw new Error('Padded message too short');
+    throw new Error('Decryption failed');
   }
 
   const version = padded[0];
   if (version !== PADDING_VERSION) {
-    throw new Error(`Unknown padding version: ${version}`);
+    throw new Error('Decryption failed');
   }
 
   const originalLength =
@@ -55,7 +57,7 @@ export function unpad(padded: Uint8Array): Uint8Array {
     padded[4]!;
 
   if (originalLength < 0 || HEADER_SIZE + originalLength > padded.length) {
-    throw new Error('Invalid padded message length');
+    throw new Error('Decryption failed');
   }
 
   return padded.slice(HEADER_SIZE, HEADER_SIZE + originalLength);

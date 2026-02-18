@@ -220,6 +220,20 @@ async function handleSealedIncoming(
       return;
     }
 
+    // IMP-7: Cross-check cert identity key against stored Signal session identity key.
+    // Warn but don't reject — key changes can be legitimate (re-registration, key rotation).
+    const storedIdentityKey = await store.loadIdentityKey(`${certPayload.username}.1`);
+    if (storedIdentityKey) {
+      const storedB64 = ab2b64(storedIdentityKey);
+      if (storedB64 !== certPayload.identityKey) {
+        console.warn('Sealed message: cert identity key differs from stored session key for', certPayload.username);
+        addSystemMessage(certPayload.username,
+          'WARNING: Sender certificate identity key does not match known key for ' + certPayload.username +
+          '. Their key may have changed. Verify safety numbers.');
+        showToast('Security alert: identity key mismatch for ' + certPayload.username, 'error');
+      }
+    }
+
     // Gossip verification: check sender's key log hash for split-view attacks
     if (unsealed.gossipHash) {
       const gossipResult = await verifyGossipHash(certPayload.userId, unsealed.gossipHash);

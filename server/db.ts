@@ -102,6 +102,8 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     recipient_id INTEGER NOT NULL REFERENCES users(id),
     envelope TEXT NOT NULL,
+    original_id TEXT,
+    sender_hash TEXT,
     timestamp TEXT DEFAULT (datetime('now')),
     delivered INTEGER DEFAULT 0,
     expires_at INTEGER
@@ -134,6 +136,10 @@ try { db.exec("ALTER TABLE signed_pre_keys ADD COLUMN uploaded_at INTEGER DEFAUL
 try { db.exec('ALTER TABLE messages ADD COLUMN expires_at INTEGER'); } catch { /* column exists */ }
 try { db.exec('ALTER TABLE messages ADD COLUMN original_id TEXT'); } catch { /* column exists */ }
 try { db.exec('ALTER TABLE users ADD COLUMN token_version INTEGER DEFAULT 1'); } catch { /* column exists */ }
+// IMP-1: Add dedup columns to sealed_messages for replay protection beyond 60s window
+try { db.exec('ALTER TABLE sealed_messages ADD COLUMN original_id TEXT'); } catch { /* column exists */ }
+try { db.exec('ALTER TABLE sealed_messages ADD COLUMN sender_hash TEXT'); } catch { /* column exists */ }
+try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_sealed_dedup ON sealed_messages(sender_hash, original_id) WHERE original_id IS NOT NULL'); } catch { /* index exists */ }
 
 // Instrumented statement wrapper - tracks query timing
 interface TimedStatement {
@@ -242,7 +248,7 @@ const stmt = {
   getKeyLogLatestForUser: timedStmt(db.prepare('SELECT sequence, entry_hash, signature, timestamp FROM key_log WHERE user_id = ? ORDER BY sequence DESC LIMIT 1'), 'getKeyLogLatestForUser'),
 
   // Sealed sender messages
-  storeSealedMessage: timedStmt(db.prepare('INSERT INTO sealed_messages (recipient_id, envelope, expires_at) VALUES (?, ?, ?)'), 'storeSealedMessage'),
+  storeSealedMessage: timedStmt(db.prepare('INSERT INTO sealed_messages (recipient_id, envelope, expires_at, original_id, sender_hash) VALUES (?, ?, ?, ?, ?)'), 'storeSealedMessage'),
   getPendingSealedMessages: timedStmt(db.prepare('SELECT id, envelope, timestamp FROM sealed_messages WHERE recipient_id = ? AND delivered = 0 ORDER BY timestamp'), 'getPendingSealedMessages'),
   markSealedDelivered: timedStmt(db.prepare('UPDATE sealed_messages SET delivered = 1 WHERE id = ? AND recipient_id = ? AND delivered = 0'), 'markSealedDelivered'),
   purgeSealedDelivered: timedStmt(db.prepare("DELETE FROM sealed_messages WHERE delivered = 1 AND timestamp < datetime('now', '-1 hour')"), 'purgeSealedDelivered'),

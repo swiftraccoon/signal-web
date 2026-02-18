@@ -42,4 +42,14 @@ const accountDeleteLimiter = rateLimit({
   store: createRedisStore('account-delete'),
 });
 
-export { authLimiter, generalLimiter, accountDeleteLimiter };
+// IMP-8: dedicated rate limit for sender certificate issuance
+const senderCertLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { error: 'Too many certificate requests, try again later' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: createRedisStore('sender-cert'),
+});
+
+export { authLimiter, generalLimiter, accountDeleteLimiter, senderCertLimiter };

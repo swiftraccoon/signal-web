@@ -4,7 +4,7 @@
 // Clients audit the chain and gossip hashes to detect split-view attacks.
 
 import crypto from 'crypto';
-import { stmt } from './db';
+import { db, stmt } from './db';
 import logger from './logger';
 
 // Re-use the Ed25519 signing infrastructure from senderCert
@@ -23,9 +23,10 @@ interface KeyLogEntry {
 
 const GENESIS_HASH = '0'.repeat(64); // SHA-256 zero hash for the first entry
 
-function computeEntryHash(userId: number, identityKey: string, previousHash: string): string {
+// CRIT-1 fix: include sequence in hash preimage to prevent chain reordering
+function computeEntryHash(sequence: number, userId: number, identityKey: string, previousHash: string): string {
   return crypto.createHash('sha256')
-    .update(`${userId}:${identityKey}:${previousHash}`)
+    .update(`${sequence}:${userId}:${identityKey}:${previousHash}`)
     .digest('hex');
 }
 
@@ -37,20 +38,25 @@ function signEntry(entryHash: string): string {
 
 /**
  * Append a new entry to the key log when a user uploads/changes their identity key.
+ * Wrapped in a transaction (IMP-2 fix) to prevent TOCTOU race on chain append.
  * Returns the new entry's hash for inclusion in bundle responses.
  */
-export function appendToKeyLog(userId: number, identityKey: string): string {
-  // Get the latest entry's hash (or genesis hash if empty)
+const appendToKeyLogTx = db.transaction((userId: number, identityKey: string): string => {
   const latest = stmt.getLatestKeyLogEntry.get() as { sequence: number; entry_hash: string } | undefined;
   const previousHash = latest?.entry_hash ?? GENESIS_HASH;
+  const nextSequence = (latest?.sequence ?? 0) + 1;
 
-  const entryHash = computeEntryHash(userId, identityKey, previousHash);
+  const entryHash = computeEntryHash(nextSequence, userId, identityKey, previousHash);
   const signature = signEntry(entryHash);
 
   stmt.appendKeyLog.run(userId, identityKey, previousHash, entryHash, signature);
-  logger.debug({ userId, entryHash, sequence: (latest?.sequence ?? 0) + 1 }, 'Key log entry appended');
+  logger.debug({ userId, entryHash, sequence: nextSequence }, 'Key log entry appended');
 
   return entryHash;
+});
+
+export function appendToKeyLog(userId: number, identityKey: string): string {
+  return appendToKeyLogTx(userId, identityKey);
 }
 
 /**
@@ -94,8 +100,8 @@ export function verifyChain(entries: KeyLogEntry[]): boolean {
       return false;
     }
 
-    // Verify entry hash
-    const computedHash = computeEntryHash(entry.user_id, entry.identity_key, entry.previous_hash);
+    // Verify entry hash (includes sequence in preimage)
+    const computedHash = computeEntryHash(entry.sequence, entry.user_id, entry.identity_key, entry.previous_hash);
     if (computedHash !== entry.entry_hash) {
       logger.error({ sequence: entry.sequence }, 'Key log entry hash mismatch');
       return false;

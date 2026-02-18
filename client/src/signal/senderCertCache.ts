@@ -1,7 +1,9 @@
 // Cached sender certificate management.
 // Fetches from server on first use, refreshes when approaching expiry.
+// CRIT-4 fix: verifies Ed25519 signature before caching.
 
 import { api } from '../api';
+import { verifySenderCertificate } from './sealed';
 import type { SenderCertificate } from '../../../shared/types';
 
 let cachedCert: SenderCertificate | null = null;
@@ -17,16 +19,16 @@ export async function getSenderCertificate(): Promise<SenderCertificate> {
   }
 
   // Fetch fresh certificate
-  cachedCert = await api.getSenderCert();
+  const cert = await api.getSenderCert();
 
-  // Parse expiry from payload
-  try {
-    const payload = JSON.parse(atob(cachedCert.payload)) as { expires: number };
-    certExpiry = payload.expires;
-  } catch {
-    // If we can't parse, assume 23h expiry from now
-    certExpiry = now + 23 * 3600;
+  // CRIT-4 fix: verify the signature before trusting the cert
+  const verified = await verifySenderCertificate(cert);
+  if (!verified) {
+    throw new Error('Server returned an invalid or unverifiable sender certificate');
   }
+
+  cachedCert = cert;
+  certExpiry = verified.expires;
 
   return cachedCert;
 }

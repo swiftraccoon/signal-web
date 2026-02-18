@@ -28,6 +28,7 @@ const WS_RATE_LIMITS: Record<string, number> = {
   [WS_MSG_TYPE.SEALED_MESSAGE]: 20,
   [WS_MSG_TYPE.DISAPPEARING_TIMER]: 5,
   [WS_MSG_TYPE.ACK]: 50,
+  'ping': 10,
 };
 const WS_RATE_LIMIT_DEFAULT = 20;
 

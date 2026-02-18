@@ -14,7 +14,8 @@
     "test:coverage": "vitest run --coverage",
     "lint": "eslint server/ client/src/ shared/ tests/",
     "lint:security": "eslint --max-warnings=0 server/ client/src/ shared/ tests/",
-    "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.client.json --noEmit"
+    "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.client.json --noEmit",
+    "prepare": "husky"
   },
   "dependencies": {
     "@node-rs/argon2": "^2.0.2",
@@ -52,9 +53,16 @@
     "eslint-plugin-no-unsanitized": "^4.1.4",
     "eslint-plugin-security": "^3.0.1",
     "eslint-plugin-sonarjs": "^3.0.7",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.2.7",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.56.0",
     "vitest": "^4.0.18"
+  },
+  "lint-staged": {
+    "*.{ts,js}": [
+      "eslint --max-warnings=0"
+    ]
   }
 }

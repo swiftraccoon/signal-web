@@ -1,0 +1,24 @@
+[extend]
+useDefault = true
+
+[[rules]]
+id = "signal-web-jwt-secret"
+description = "Hardcoded JWT secret"
+regex = '''(?i)jwt[_-]?secret\s*[:=]\s*["'`]([^"'`]{8,})["'`]'''
+tags = ["secret", "jwt"]
+
+[[rules]]
+id = "signal-web-db-credentials"
+description = "Database connection with credentials"
+regex = '''(?i)(sqlite|db|database)[_-]?(path|url|uri)\s*[:=]\s*["'`]([^"'`]+://[^"'`]+)["'`]'''
+tags = ["secret", "database"]
+
+[allowlist]
+paths = [
+  '''node_modules/.*''',
+  '''\.gitleaks\.toml''',
+  '''dist/.*''',
+  '''client/dist/.*''',
+  '''package-lock\.json''',
+  '''\.semgrep\.yml''',
+]

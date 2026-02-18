@@ -62,7 +62,13 @@
   },
   "lint-staged": {
     "*.{ts,js}": [
-      "eslint --max-warnings=0"
+      "eslint --max-warnings=0",
+      "bash scripts/check-secrets.sh",
+      "bash scripts/check-crypto-misuse.sh"
+    ],
+    "server/routes/*.ts": [
+      "bash scripts/check-unprotected-routes.sh",
+      "bash scripts/check-rate-limiters.sh"
     ]
   }
 }

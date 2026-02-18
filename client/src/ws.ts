@@ -106,7 +106,7 @@ function scheduleRetry(entry: PersistedQueuedMessage): void {
   if (entry.retries >= MAX_RETRIES) {
     // Max retries reached, emit send_failed
     emit('send_failed', { queueId: entry.id, message: entry.message });
-    removeFromQueue(entry.id);
+    void removeFromQueue(entry.id);
     return;
   }
 
@@ -181,7 +181,7 @@ async function connect(): Promise<void> {
     }, PING_INTERVAL_MS);
 
     // Flush queued messages from IndexedDB
-    flushQueue();
+    void flushQueue();
   };
 
   ws.onmessage = (e: MessageEvent) => {
@@ -226,6 +226,7 @@ function disconnect(): void {
   reconnectDelay = 1000;
   // Clear all retry timers
   for (const [, timer] of retryTimers) {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument -- Map<string, ReturnType<typeof setTimeout>> iteration; type not resolved by project service
     clearTimeout(timer);
   }
   retryTimers.clear();
@@ -263,6 +264,7 @@ function off(type: string, fn: (data?: unknown) => void): void {
 function emit(type: string, data?: unknown): void {
   const set = listeners.get(type);
   if (set) {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-call -- Set<(data?: unknown) => void> iteration; type not resolved by project service
     for (const fn of set) fn(data);
   }
 }

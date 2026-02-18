@@ -22,11 +22,13 @@ const BUNDLE_FETCH_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 // Periodic cleanup of expired rate limit entries
 setInterval(() => {
   const now = Date.now();
+  /* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument -- Map<string, BundleFetchEntry> iteration; type not resolved by project service */
   for (const [key, val] of bundleFetchCounts) {
     if (now - val.windowStart > BUNDLE_FETCH_WINDOW_MS) {
       bundleFetchCounts.delete(key);
     }
   }
+  /* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument */
 }, 5 * 60 * 1000);
 
 router.put('/bundle', authenticateToken, (req: Request, res: Response) => {

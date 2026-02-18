@@ -87,8 +87,10 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
     // Track for metrics
     // Normalize path (replace numeric IDs with :id)
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- Express req.route is typed as any
+    const routePath: string = req.route ? (req.route.path as string) : '';
     const normalizedPath = req.route
-      ? req.baseUrl + req.route.path
+      ? req.baseUrl + routePath
       : req.originalUrl.split('?')[0];
     trackRequestDuration(req.method, normalizedPath!, duration);
 
@@ -122,6 +124,7 @@ app.get('/health', (_req: Request, res: Response) => {
 app.get('/metrics', (req: Request, res: Response, next: NextFunction) => {
   if (config.IS_PRODUCTION) {
     const rawIp = req.socket.remoteAddress || '';
+    // eslint-disable-next-line sonarjs/no-hardcoded-ip -- localhost check for metrics endpoint access control
     const isLocalhost = rawIp === '127.0.0.1' || rawIp === '::1' || rawIp === '::ffff:127.0.0.1';
     if (!isLocalhost) {
       res.status(403).json({ error: 'Forbidden' });

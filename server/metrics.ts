@@ -40,7 +40,7 @@ function trackRequestDuration(method: string, path: string, durationMs: number):
     if (Object.keys(requestDurations).length >= MAX_TRACKED_ENDPOINTS) return;
     requestDurations[key] = { count: 0, totalMs: 0, maxMs: 0, p99: [] };
   }
-  const entry = requestDurations[key]!;
+  const entry = requestDurations[key];
   entry.count++;
   entry.totalMs += durationMs;
   if (durationMs > entry.maxMs) entry.maxMs = durationMs;

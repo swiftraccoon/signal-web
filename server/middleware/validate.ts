@@ -4,7 +4,9 @@ import { Request, Response, NextFunction, RequestHandler } from 'express';
 function handleValidation(req: Request, res: Response, next: NextFunction): void {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    res.status(400).json({ error: errors.array()[0]!.msg });
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- express-validator .msg is typed as any
+    const errorMsg: string = errors.array()[0]!.msg;
+    res.status(400).json({ error: errorMsg });
     return;
   }
   next();

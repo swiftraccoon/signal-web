@@ -29,7 +29,7 @@ function setLoading(btn: HTMLButtonElement, loading: boolean, originalText: stri
   }
 }
 
-async function init(): Promise<void> {
+function init(): void {
   initAuth(onAuthSuccess);
   initContacts(onContactSelected);
   initChat();
@@ -139,7 +139,7 @@ async function enterChat(user: ApiUser, isNewRegistration: boolean): Promise<voi
     console.error('Failed to fetch server public key:', err);
   }
 
-  connect();
+  void connect();
   setupWSHandlers();
 
   // Fetch pending messages (regular + sealed)
@@ -194,7 +194,7 @@ async function enterChat(user: ApiUser, isNewRegistration: boolean): Promise<voi
   }
 
   // Show onboarding tour for first-time users
-  showOnboardingIfNew();
+  void showOnboardingIfNew();
 }
 
 async function handleSealedIncoming(
@@ -296,7 +296,7 @@ function setupWSHandlers(): void {
   });
 
   on(WS_MSG_TYPE.DELIVERED, (raw) => {
-    handleDelivered(raw as WsServerDeliveredMessage);
+    void handleDelivered(raw as WsServerDeliveredMessage);
   });
 
   on(WS_MSG_TYPE.DISAPPEARING_TIMER, (raw) => {
@@ -339,7 +339,7 @@ async function replenishKeys(): Promise<void> {
 }
 
 function onContactSelected(username: string): void {
-  openChat(username);
+  void openChat(username);
 }
 
 function logout(): void {
@@ -351,7 +351,7 @@ function logout(): void {
   clearSenderCertCache();
   clearKeyLogGossip();
   clearEncryptionKey();
-  clearAll();
+  void clearAll();
   showAuth();
   document.getElementById('chat-view')!.classList.add('hidden');
   document.getElementById('auth-view')!.classList.remove('hidden');
@@ -361,6 +361,4 @@ function onAccountDeleted(): void {
   logout();
 }
 
-init().catch((err) => {
-  console.error('Init error:', err);
-});
+init();

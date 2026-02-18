@@ -271,6 +271,7 @@ export class SignalProtocolStore {
         // Notify listeners about identity key change (MITM detection)
         const username = encodedAddress.split('.')[0]!;
         for (const fn of identityKeyChangeListeners) {
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-call -- Set<IdentityKeyChangeListener> iteration; type not resolved by project service
           try { fn(username); } catch { /* listener error must not break protocol */ }
         }
       }

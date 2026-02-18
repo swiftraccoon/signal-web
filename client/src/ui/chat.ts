@@ -11,9 +11,9 @@ import { WS_MSG_TYPE } from '../../../shared/constants';
 import type { ChatMessage, WsServerDeliveredMessage, WsServerDisappearingTimerMessage } from '../../../shared/types';
 
 let currentChat: string | null = null; // username
-let messageHistory: Record<string, ChatMessage[]> = {};
-let disappearingTimers: Record<string, number> = {};
-let disappearIntervals: Record<string, ReturnType<typeof setInterval>> = {};
+const messageHistory: Record<string, ChatMessage[]> = {};
+const disappearingTimers: Record<string, number> = {};
+const disappearIntervals: Record<string, ReturnType<typeof setInterval>> = {};
 let renderScheduled = false; // rAF debounce flag
 
 function setLoading(btn: HTMLButtonElement, loading: boolean, originalText: string): void {
@@ -150,9 +150,9 @@ export function initChat(): void {
   });
 
   disappearingMenu.addEventListener('click', (e) => {
-    const option = (e.target as HTMLElement).closest('.disappearing-option') as HTMLElement | null;
+    const option = (e.target as HTMLElement).closest<HTMLElement>('.disappearing-option');
     if (!option) return;
-    const timer = parseInt(option.dataset.timer!, 10);
+    const timer = parseInt(option.dataset.timer ?? '0', 10);
     setDisappearingTimer(currentChat!, timer);
     disappearingMenu.classList.add('hidden');
   });
@@ -166,7 +166,7 @@ export function initChat(): void {
 
   // Safety number button
   document.getElementById('safety-number-btn')!.addEventListener('click', () => {
-    if (currentChat) showSafetyNumber(currentChat);
+    if (currentChat) void showSafetyNumber(currentChat);
   });
 
   // Mobile back button
@@ -182,7 +182,7 @@ export function initChat(): void {
     const failedData = data as { queueId: string; message: { type: string; id?: string; to?: string; [key: string]: unknown } } | undefined;
     if (!failedData || !failedData.message) return;
 
-    const msgId = failedData.message.id as string | undefined;
+    const msgId = failedData.message.id;
     if (!msgId) return;
 
     failedMessages.set(msgId, {
@@ -191,9 +191,9 @@ export function initChat(): void {
     });
 
     // Update the message status in history
-    const username = failedData.message.to as string | undefined;
+    const username = failedData.message.to;
     if (username && messageHistory[username]) {
-      for (const msg of messageHistory[username]!) {
+      for (const msg of messageHistory[username]) {
         if (msg.id === msgId && msg.sent) {
           msg.status = 'sent'; // Keep as sent but UI will show retry based on failedMessages map
           break;
@@ -306,7 +306,7 @@ export async function handleDelivered(data: WsServerDeliveredMessage): Promise<v
 export function handleDisappearingTimerChange(data: WsServerDisappearingTimerMessage): void {
   if (!data.from || data.timer === undefined) return;
   disappearingTimers[data.from] = data.timer;
-  put(STORES.META, `disappear:${data.from}`, data.timer);
+  void put(STORES.META, `disappear:${data.from}`, data.timer);
 
   if (currentChat === data.from) {
     updateDisappearingBanner(data.from);
@@ -319,7 +319,7 @@ export function handleDisappearingTimerChange(data: WsServerDisappearingTimerMes
 
 function setDisappearingTimer(username: string, timer: number): void {
   disappearingTimers[username] = timer;
-  put(STORES.META, `disappear:${username}`, timer);
+  void put(STORES.META, `disappear:${username}`, timer);
   updateDisappearingBanner(username);
 
   // Notify the other user
@@ -362,14 +362,16 @@ function updateDisappearingBanner(username: string): void {
 
 function updateDisappearingMenuActive(): void {
   const timer = disappearingTimers[currentChat!] || 0;
-  const options = document.querySelectorAll('.disappearing-option');
+  /* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call -- NodeListOf<HTMLElement> iteration; type not resolved by project service */
+  const options = document.querySelectorAll<HTMLElement>('.disappearing-option');
   for (const opt of options) {
-    if (parseInt((opt as HTMLElement).dataset.timer!, 10) === timer) {
+    if (parseInt(opt.dataset.timer ?? '0', 10) === timer) {
       opt.classList.add('active');
     } else {
       opt.classList.remove('active');
     }
   }
+  /* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call */
 }
 
 async function updateMessageStatus(msgId: string, status: 'delivered'): Promise<void> {
@@ -405,9 +407,9 @@ async function updateMessageStatus(msgId: string, status: 'delivered'): Promise<
 
 export function addSystemMessage(username: string, text: string): void {
   if (!messageHistory[username]) messageHistory[username] = [];
-  messageHistory[username]!.push({ system: true, text, sent: false, time: new Date().toISOString() });
+  messageHistory[username].push({ system: true, text, sent: false, time: new Date().toISOString() });
 
-  const history = messageHistory[username]!.slice(-500);
+  const history = messageHistory[username].slice(-500);
   messageHistory[username] = history;
   putDebounced(STORES.MESSAGES, username, history);
 
@@ -416,15 +418,15 @@ export function addSystemMessage(username: string, text: string): void {
 
 function addMessage(username: string, msg: ChatMessage): void {
   if (!messageHistory[username]) messageHistory[username] = [];
-  messageHistory[username]!.push(msg);
+  messageHistory[username].push(msg);
 
   // Track in IndexedDB for persistent O(1) status updates
   if (msg.id) {
-    trackMessageId(msg.id, username);
+    void trackMessageId(msg.id, username);
   }
 
   // Persist to IndexedDB (keep last 500 messages per contact)
-  const history = messageHistory[username]!.slice(-500);
+  const history = messageHistory[username].slice(-500);
   messageHistory[username] = history;
   putDebounced(STORES.MESSAGES, username, history);
 
@@ -471,7 +473,7 @@ function startDisappearChecker(username: string): void {
     delete disappearIntervals[key];
   }
 
-  if (disappearingTimers[username] && disappearingTimers[username]! > 0) {
+  if (disappearingTimers[username] && disappearingTimers[username] > 0) {
     disappearIntervals[username] = setInterval(() => {
       const before = (messageHistory[username] || []).length;
       purgeExpiredMessages(username);
@@ -563,7 +565,7 @@ function renderMessages(username: string): void {
         const failedInfo = failedMessages.get(failedMsgId);
         if (failedInfo) {
           failedMessages.delete(failedMsgId);
-          requeueMessage(failedInfo.message);
+          void requeueMessage(failedInfo.message);
           // Re-render to remove the retry button
           if (currentChat) scheduleRender(currentChat);
         }
@@ -604,6 +606,7 @@ function renderTextWithLinks(element: HTMLElement, text: string): void {
     return;
   }
 
+  /* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-assignment -- RegExpMatchArray iteration; match.index and match[0] are well-typed */
   let lastIndex = 0;
   for (const match of matches) {
     // Text before the URL
@@ -623,6 +626,7 @@ function renderTextWithLinks(element: HTMLElement, text: string): void {
     }
     lastIndex = match.index! + match[0].length;
   }
+  /* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-assignment */
   // Remaining text after last URL
   if (lastIndex < safeText.length) {
     element.appendChild(document.createTextNode(safeText.slice(lastIndex)));
@@ -731,7 +735,7 @@ async function showSafetyNumber(username: string): Promise<void> {
 
   // Copy button handler
   document.getElementById('safety-copy-btn')!.onclick = () => {
-    navigator.clipboard.writeText(fingerprint.replace(/\n/g, ' ').trim());
+    void navigator.clipboard.writeText(fingerprint.replace(/\n/g, ' ').trim());
     showToast('Safety number copied', 'success');
   };
 

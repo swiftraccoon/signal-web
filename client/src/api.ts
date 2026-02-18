@@ -68,6 +68,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     headers: { ...headers, ...(options.headers as Record<string, string> | undefined) },
   });
 
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- Response.json() returns Promise<any>
   const data = await res.json();
 
   if (!res.ok) {

@@ -90,7 +90,7 @@ async function ensureSession(username: string, userId: number): Promise<void> {
 
     // Cache key transparency proof for gossip verification
     if (bundle.keyLogProof) {
-      storeKeyLogProof(userId, bundle.keyLogProof);
+      void storeKeyLogProof(userId, bundle.keyLogProof);
     }
 
     const builder = new SessionBuilder(s, address);
@@ -127,7 +127,7 @@ export async function encryptMessage(username: string, userId: number, plaintext
   const result = await cipher.encrypt(padded.buffer as ArrayBuffer);
 
   // H7: Zero the plaintext and padded buffers after encryption
-  zeroArrayBuffer(textBytes.buffer as ArrayBuffer);
+  zeroArrayBuffer(textBytes.buffer);
   zeroArrayBuffer(padded.buffer as ArrayBuffer);
 
   // Body from encrypt is a binary string; base64 encode for safe JSON transport

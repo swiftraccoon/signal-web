@@ -9,6 +9,7 @@ const WS_TICKET_TTL_MS = 30000; // 30 seconds
 setInterval(() => {
   const now = Date.now();
   for (const [t, v] of wsTickets) {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument -- Map<string, WsTicketEntry> iteration; type not resolved by project service
     if (v.expiresAt < now) wsTickets.delete(t);
   }
 }, WS_TICKET_TTL_MS);

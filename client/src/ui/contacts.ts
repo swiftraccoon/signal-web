@@ -2,7 +2,7 @@ import { api } from '../api';
 import { STORES, put, putDebounced, getAll } from '../storage/indexeddb';
 import type { ApiUser, Contact } from '../../../shared/types';
 
-let contacts: Record<string, Contact> = {};
+const contacts: Record<string, Contact> = {};
 let activeContact: string | null = null;
 let onSelectContact: ((username: string, contact?: Contact) => void) | null = null;
 let contactRenderScheduled = false;
@@ -78,7 +78,7 @@ export function addContact(user: ApiUser): void {
       lastMessage: '',
       lastTime: '',
     };
-    put(STORES.CONTACTS, user.username, contacts[user.username]);
+    void put(STORES.CONTACTS, user.username, contacts[user.username]);
     scheduleContactRender();
   }
 }
@@ -86,7 +86,7 @@ export function addContact(user: ApiUser): void {
 export function selectContact(username: string): void {
   activeContact = username;
   if (contacts[username]) {
-    contacts[username]!.unread = 0;
+    contacts[username].unread = 0;
     putDebounced(STORES.CONTACTS, username, contacts[username]);
   }
   renderContacts(); // immediate for active selection
@@ -103,7 +103,7 @@ export function getContactInfo(username: string): Contact | undefined {
 
 export function incrementUnread(username: string): void {
   if (contacts[username]) {
-    contacts[username]!.unread++;
+    contacts[username].unread++;
     putDebounced(STORES.CONTACTS, username, contacts[username]);
     scheduleContactRender();
   }
@@ -111,8 +111,8 @@ export function incrementUnread(username: string): void {
 
 export function updateLastMessage(username: string, text: string, time: string): void {
   if (contacts[username]) {
-    contacts[username]!.lastMessage = text;
-    contacts[username]!.lastTime = time || new Date().toISOString();
+    contacts[username].lastMessage = text;
+    contacts[username].lastTime = time || new Date().toISOString();
     putDebounced(STORES.CONTACTS, username, contacts[username]);
     scheduleContactRender();
   }

@@ -39,11 +39,13 @@ const userRateLimits = new Map<string, UserRateLimitEntry>();
 // C3: Periodic cleanup of stale rate limit entries (replaces on-disconnect deletion)
 setInterval(() => {
   const now = Date.now();
+  /* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument -- Map iteration; type not resolved by project service */
   for (const [key, limit] of userRateLimits) {
     if (now - limit.windowStart > WS_RATE_WINDOW * 2) {
       userRateLimits.delete(key);
     }
   }
+  /* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument */
 }, WS_RATE_WINDOW * 2);
 
 // Redis-backed rate limiting with in-memory fallback (per message type)
@@ -192,7 +194,8 @@ function setupWebSocket(server: http.Server): WebSocketServer {
       // Parse JSON before rate limiting so we can apply per-type limits
       let msg: Record<string, unknown>;
       try {
-        msg = JSON.parse(data.toString()) as Record<string, unknown>;
+        const raw = Buffer.isBuffer(data) ? data.toString('utf8') : Buffer.from(data as ArrayBuffer).toString('utf8');
+        msg = JSON.parse(raw) as Record<string, unknown>;
       } catch {
         ws.send(JSON.stringify({ type: WS_MSG_TYPE.ERROR, message: 'Invalid JSON' }));
         return;

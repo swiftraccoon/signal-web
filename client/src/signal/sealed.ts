@@ -36,7 +36,7 @@ async function importX25519Private(rawKey: ArrayBuffer): Promise<CryptoKey> {
   pkcs8.set(new Uint8Array(rawKey), X25519_PKCS8_PREFIX.length);
   try {
     return await crypto.subtle.importKey(
-      'pkcs8', pkcs8.buffer as ArrayBuffer, { name: 'X25519' }, false, ['deriveBits'],
+      'pkcs8', pkcs8.buffer, { name: 'X25519' }, false, ['deriveBits'],
     );
   } finally {
     // Zero the PKCS8 buffer (contains raw private key bytes)
@@ -124,7 +124,7 @@ export async function sealMessage(
     identityKeyBytes = identityKeyBytes.slice(1);
   }
 
-  const recipientKey = await importX25519Public(identityKeyBytes.buffer as ArrayBuffer);
+  const recipientKey = await importX25519Public(identityKeyBytes.buffer);
 
   // Generate ephemeral X25519 key pair
   const ephemeral = await generateEphemeralKeyPair();
@@ -156,12 +156,12 @@ export async function sealMessage(
   const ephemeralPub = await crypto.subtle.exportKey('raw', ephemeral.publicKey);
 
   // Zero sensitive buffers
-  zeroArrayBuffer(payloadBytes.buffer as ArrayBuffer);
+  zeroArrayBuffer(payloadBytes.buffer);
 
   return {
     version: SEALED_SENDER_VERSION,
     ephemeralKey: ab2b64(ephemeralPub),
-    iv: ab2b64(iv.buffer as ArrayBuffer),
+    iv: ab2b64(iv.buffer),
     ciphertext: ab2b64(ciphertext),
   };
 }

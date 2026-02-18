@@ -18,7 +18,7 @@ const router = express.Router();
 
 // Dummy hash for constant-time verification (prevents timing-based user enumeration)
 let DUMMY_HASH: string;
-(async () => {
+void (async () => {
   DUMMY_HASH = await hashPassword('dummy-password-for-timing');
 })();
 

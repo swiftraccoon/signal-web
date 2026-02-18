@@ -17,6 +17,7 @@ const MESSAGE_ID_TTL_MS = 60000; // 60 seconds
 setInterval(() => {
   const now = Date.now();
   for (const [key, ts] of recentMessageIds) {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument -- Map<string, number> value; type not resolved by project service
     if (now - ts > MESSAGE_ID_TTL_MS) recentMessageIds.delete(key);
   }
 }, 30000);
@@ -294,7 +295,7 @@ function handleDisappearingTimer(sender: WsUser, msg: Record<string, unknown>): 
   }
 
   // Persist timer server-side (msg.timer is in seconds, column is milliseconds)
-  stmt.upsertConversationTimer.run(sender.id, recipient.id, sender.id, recipient.id, (msg.timer as number) * 1000);
+  stmt.upsertConversationTimer.run(sender.id, recipient.id, sender.id, recipient.id, (msg.timer) * 1000);
 }
 
 function send(ws: WebSocket, data: unknown): void {

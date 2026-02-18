@@ -148,6 +148,7 @@ export function initSettings(deleteCallback: () => void): void {
     }
 
     const confirmPassword = window.prompt('Confirm backup password:');
+    // eslint-disable-next-line security/detect-possible-timing-attacks -- client-side UI confirmation, not comparing secrets
     if (password !== confirmPassword) {
       showToast('Passwords do not match', 'error');
       return;

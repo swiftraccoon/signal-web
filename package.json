@@ -24,9 +24,11 @@
   "dependencies": {
     "@node-rs/argon2": "^2.0.2",
     "@privacyresearch/libsignal-protocol-typescript": "^0.0.12",
+    "argon2-browser": "1.18.0",
     "bcrypt": "^6.0.0",
     "better-sqlite3": "^11.7.0",
     "compression": "^1.8.1",
+    "cookie-parser": "1.4.7",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "express-rate-limit": "^7.5.0",
@@ -46,6 +48,7 @@
     "@types/bcrypt": "^6.0.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/compression": "^1.8.1",
+    "@types/cookie-parser": "1.4.10",
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^25.2.3",
@@ -71,7 +74,7 @@
   },
   "lint-staged": {
     "*.{ts,js}": [
-      "eslint --max-warnings=0",
+      "eslint --max-warnings=0 --no-warn-ignored",
       "bash scripts/check-secrets.sh",
       "bash scripts/check-crypto-misuse.sh"
     ],

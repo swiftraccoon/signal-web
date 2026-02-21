@@ -779,6 +779,32 @@ body {
   }
 }
 
+/* Server Key Change Warning */
+.server-key-details {
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.server-key-details summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.key-details-pre {
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  overflow-x: auto;
+  white-space: pre;
+}
+
 /* Loading Spinners */
 .spinner { display:inline-block; width:16px; height:16px; border:2px solid rgba(255,255,255,.3); border-top-color:#fff; border-radius:50%; animation:spin .6s linear infinite; }
 @keyframes spin { to { transform:rotate(360deg) } }

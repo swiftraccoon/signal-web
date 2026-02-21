@@ -1,4 +1,4 @@
-import { api, setToken, setRefreshToken, setCurrentUser } from './api';
+import { api, setToken, setCurrentUser } from './api';
 import { connect, disconnect, on } from './ws';
 import { initAuth, showAuth, hideAuth } from './ui/auth';
 import { initContacts, loadContacts, addContact, getActiveContact, incrementUnread } from './ui/contacts';
@@ -11,7 +11,7 @@ import { generateAndStoreKeys, generateMorePreKeys, rotateSignedPreKeyIfNeeded }
 import { unsealMessage, verifySenderCertificate, setServerPublicKey } from './signal/sealed';
 import { clearSenderCertCache } from './signal/senderCertCache';
 import { setOwnKeyLogHash, verifyGossipHash, clearKeyLogGossip } from './signal/keyLogGossip';
-import { clearAll, initEncryption, clearEncryptionKey, upgradeIterationsIfNeeded, remove, STORES } from './storage/indexeddb';
+import { clearAll, initEncryption, clearEncryptionKey, upgradeIterationsIfNeeded, upgradeToArgon2idIfNeeded, remove, get, put, STORES } from './storage/indexeddb';
 import { showOnboardingIfNew } from './ui/onboarding';
 import { WS_MSG_TYPE } from '../../shared/constants';
 import type { ApiUser, WsServerChatMessage, WsServerSealedMessage, WsServerDeliveredMessage, WsServerDisappearingTimerMessage, WsServerErrorMessage } from '../../shared/types';
@@ -54,6 +54,9 @@ async function onAuthSuccess(user: ApiUser, isNewRegistration: boolean, password
 
     // M5: Upgrade PBKDF2 iteration count for existing users (transparent re-encryption)
     await upgradeIterationsIfNeeded(password, user.username);
+
+    // Upgrade to Argon2id if WASM is available (async, fire-and-forget)
+    void upgradeToArgon2idIfNeeded(password, user.username);
 
     await enterChat(user, isNewRegistration);
   } catch (err) {
@@ -132,8 +135,19 @@ async function enterChat(user: ApiUser, isNewRegistration: boolean): Promise<voi
   await loadContacts();
 
   // Fetch server's Ed25519 public key for sender certificate verification
+  // TOFU: Pin server sealed sender key on first use
   try {
     const { publicKey } = await api.getServerKey();
+
+    const pinnedKey = await get(STORES.CRYPTO_PARAMS, 'pinned_server_key') as string | undefined;
+    if (!pinnedKey) {
+      // First use — pin the key
+      await put(STORES.CRYPTO_PARAMS, 'pinned_server_key', publicKey);
+    } else if (pinnedKey !== publicKey) {
+      // Key changed — potential MITM, warn the user
+      showServerKeyChangeWarning(pinnedKey, publicKey);
+    }
+
     await setServerPublicKey(publicKey);
   } catch (err) {
     console.error('Failed to fetch server public key:', err);
@@ -307,6 +321,25 @@ function setupWSHandlers(): void {
     await replenishKeys();
   });
 
+  on(WS_MSG_TYPE.PREKEY_STALE, async () => {
+    try {
+      const store = getStore();
+      const rotatedSPK = await rotateSignedPreKeyIfNeeded(store);
+      if (rotatedSPK) {
+        const regId = await store.getLocalRegistrationId();
+        const idKey = await store.getIdentityKeyPair();
+        await api.uploadBundle({
+          registrationId: regId!,
+          identityKey: ab2b64(idKey!.pubKey),
+          signedPreKey: rotatedSPK,
+          preKeys: [],
+        });
+      }
+    } catch (err) {
+      console.error('Signed pre-key auto-rotation failed:', err);
+    }
+  });
+
   on(WS_MSG_TYPE.ERROR, (raw) => {
     const data = raw as WsServerErrorMessage;
     const friendlyMessages: Record<string, string> = {
@@ -345,7 +378,6 @@ function onContactSelected(username: string): void {
 function logout(): void {
   disconnect();
   setToken(null);
-  setRefreshToken(null);
   setCurrentUser(null);
   resetStore();
   clearSenderCertCache();
@@ -359,6 +391,26 @@ function logout(): void {
 
 function onAccountDeleted(): void {
   logout();
+}
+
+function showServerKeyChangeWarning(oldKey: string, newKey: string): void {
+  const modal = document.getElementById('server-key-change-modal')!;
+  const oldKeySpan = document.getElementById('server-key-old')!;
+  const newKeySpan = document.getElementById('server-key-new')!;
+
+  oldKeySpan.textContent = oldKey.slice(0, 16) + '...';
+  newKeySpan.textContent = newKey.slice(0, 16) + '...';
+  modal.classList.remove('hidden');
+
+  document.getElementById('server-key-accept-btn')!.onclick = async () => {
+    await put(STORES.CRYPTO_PARAMS, 'pinned_server_key', newKey);
+    modal.classList.add('hidden');
+  };
+
+  document.getElementById('server-key-reject-btn')!.onclick = () => {
+    modal.classList.add('hidden');
+    window.location.reload();
+  };
 }
 
 init();

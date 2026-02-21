@@ -33,3 +33,5 @@ export const DISAPPEARING_TIMERS = {
 } as const;
 
 export type DisappearingTimer = (typeof DISAPPEARING_TIMERS)[keyof typeof DISAPPEARING_TIMERS];
+
+export const SIGNED_PREKEY_MAX_AGE_SEC = 7 * 24 * 3600; // 7 days

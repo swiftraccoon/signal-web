@@ -80,7 +80,7 @@ export interface ApiUser {
 
 export interface AuthResponse {
   token: string;
-  refreshToken: string;
+  refreshToken?: string;
   user: ApiUser;
 }
 
@@ -183,12 +183,14 @@ export interface ServerConfig {
   REDIS_URL: string | null;
   ALLOWED_WS_ORIGINS: string[];
   AUDIT_SECRET: string | null;
+  MAX_CONCURRENT_SESSIONS: number;
 }
 
 export interface JwtTokenPayload {
   id: number;
   username: string;
   token_version?: number;
+  fp?: string;
   iat?: number;
   exp?: number;
 }

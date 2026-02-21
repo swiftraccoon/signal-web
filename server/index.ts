@@ -3,6 +3,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import helmet from 'helmet';
 import compression from 'compression';
+import cookieParser from 'cookie-parser';
 import config from './config';
 import logger from './logger';
 import { stmt, db } from './db';
@@ -10,6 +11,7 @@ import { audit } from './audit';
 import { generalLimiter } from './middleware/rateLimiter';
 import { setupWebSocket } from './ws';
 import { incr, trackRequestDuration, getSnapshot } from './metrics';
+import cspRouter from './routes/csp';
 import authRouter from './routes/auth';
 import keysRouter from './routes/keys';
 import usersRouter from './routes/users';
@@ -32,8 +34,8 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'", "'wasm-unsafe-eval'"],
+      styleSrc: ["'self'"],
       connectSrc: config.IS_PRODUCTION
         ? ["'self'", "wss:"]
         : ["'self'", "ws://localhost:*", "wss://localhost:*"],
@@ -43,6 +45,7 @@ app.use(helmet({
       frameAncestors: ["'none'"],
       baseUri: ["'self'"],
       formAction: ["'self'"],
+      reportUri: '/api/csp-report',
     },
   },
   // L12: Enable COEP with credentialless (less restrictive than require-corp but still provides isolation)
@@ -54,7 +57,18 @@ app.use(helmet({
   hsts: config.IS_PRODUCTION ? { maxAge: 63072000, includeSubDomains: true, preload: true } : false,
 }));
 
+// Permissions-Policy: deny all device hardware access
+app.use((_req: Request, res: Response, next: NextFunction) => {
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), bluetooth=(), magnetometer=(), gyroscope=(), accelerometer=()');
+  next();
+});
+
 app.use(express.json({ limit: '64kb' }));
+app.use(cookieParser());
+
+// CSP report endpoint — registered before Content-Type enforcement
+// because browsers send CSP reports with Content-Type: application/csp-report
+app.use('/api', cspRouter);
 
 // H6: Reject non-JSON Content-Type on API mutation endpoints
 app.use('/api', (req: Request, res: Response, next: NextFunction) => {
@@ -142,6 +156,63 @@ app.use(express.static(clientDir, {
   index: 'index.html',
   dotfiles: 'ignore',
 }));
+
+// CORS middleware for /api routes — uses ALLOWED_WS_ORIGINS allowlist
+app.use('/api', (req: Request, res: Response, next: NextFunction) => {
+  const origin = req.get('Origin');
+
+  // Same-origin requests have no Origin header — always allow
+  if (!origin) {
+    next();
+    return;
+  }
+
+  const allowedOrigins = config.ALLOWED_WS_ORIGINS;
+  const hasExplicitConfig = allowedOrigins.length > 0;
+  let allowed = false;
+
+  if (hasExplicitConfig) {
+    // Production or dev with explicit config: check allowlist
+    allowed = allowedOrigins.includes(origin);
+  } else if (!config.IS_PRODUCTION) {
+    // Development with no explicit config: allow all origins
+    allowed = true;
+  }
+  // Production with no config (empty allowlist) and an Origin header: denied
+
+  if (!allowed) {
+    if (req.method === 'OPTIONS') {
+      // Reject preflight from disallowed origin
+      res.status(403).end();
+      return;
+    }
+    // Actual request from disallowed origin: skip CORS headers, proceed normally
+    next();
+    return;
+  }
+
+  // Set CORS headers for allowed origins
+  res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Max-Age', '86400');
+  res.setHeader('Vary', 'Origin');
+
+  // Handle preflight
+  if (req.method === 'OPTIONS') {
+    res.status(204).end();
+    return;
+  }
+
+  next();
+});
+
+// Prevent browser/proxy cache forensic recovery of sensitive API responses
+app.use('/api', (_req: Request, res: Response, next: NextFunction) => {
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+});
 
 // API routes
 app.use('/api/auth', authRouter);

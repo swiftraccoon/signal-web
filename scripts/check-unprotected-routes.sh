@@ -2,7 +2,7 @@
 # check-unprotected-routes.sh — Detect routes without authentication middleware.
 # Receives file paths as arguments from lint-staged.
 # Only processes files matching server/routes/*.
-# Exempt routes: /register, /login, /refresh, ws-ticket, health, ready
+# Exempt routes: /register, /login, /refresh, ws-ticket, health, ready, csp-report
 # Exit 1 if any unprotected route is found.
 
 set -euo pipefail
@@ -24,7 +24,7 @@ for file in "$@"; do
   # Then check if authenticateToken or authenticate is in the same route call
   while IFS= read -r line; do
     # Skip exempt routes
-    if echo "$line" | grep -qEi "(register|login|refresh|ws-ticket|health|ready)"; then
+    if echo "$line" | grep -qEi "(register|login|refresh|ws-ticket|health|ready|csp-report)"; then
       continue
     fi
 

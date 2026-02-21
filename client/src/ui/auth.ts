@@ -1,4 +1,4 @@
-import { api, setToken, setRefreshToken, setCurrentUser } from '../api';
+import { api, setToken, setCurrentUser } from '../api';
 import { showToast } from './notifications';
 import type { ApiUser } from '../../../shared/types';
 
@@ -79,7 +79,6 @@ export function initAuth(callback: (user: ApiUser, isNew: boolean, password: str
         : await api.login(username, password);
 
       setToken(result.token);
-      setRefreshToken(result.refreshToken);
       setCurrentUser(result.user);
       // Pass password to callback for storage encryption key derivation
       onAuthSuccess!(result.user, isRegisterMode, password);

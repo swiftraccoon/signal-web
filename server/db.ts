@@ -229,6 +229,8 @@ const stmt = {
   deleteRefreshToken: timedStmt(db.prepare('DELETE FROM refresh_tokens WHERE token_hash = ?'), 'deleteRefreshToken'),
   deleteUserRefreshTokens: timedStmt(db.prepare('DELETE FROM refresh_tokens WHERE user_id = ?'), 'deleteUserRefreshTokens'),
   purgeExpiredRefreshTokens: timedStmt(db.prepare('DELETE FROM refresh_tokens WHERE expires_at < unixepoch()'), 'purgeExpiredRefreshTokens'),
+  countUserRefreshTokens: timedStmt(db.prepare('SELECT COUNT(*) as count FROM refresh_tokens WHERE user_id = ? AND expires_at > unixepoch()'), 'countUserRefreshTokens'),
+  deleteOldestRefreshToken: timedStmt(db.prepare('DELETE FROM refresh_tokens WHERE id = (SELECT id FROM refresh_tokens WHERE user_id = ? AND expires_at > unixepoch() ORDER BY created_at ASC LIMIT 1)'), 'deleteOldestRefreshToken'),
 
   // Disappearing messages / conversation settings
   upsertConversationTimer: timedStmt(db.prepare(`

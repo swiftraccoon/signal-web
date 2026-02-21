@@ -165,6 +165,28 @@
     </div>
   </div>
 
+  <!-- Server Key Change Modal (TOFU) -->
+  <div id="server-key-change-modal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content modal-small">
+      <div class="modal-header">
+        <h3>Server Key Changed</h3>
+      </div>
+      <div class="modal-body">
+        <p class="identity-warning">The server's sealed sender key has changed. This could indicate a server compromise or man-in-the-middle attack. If you did not expect this change, contact the server administrator.</p>
+        <details class="server-key-details">
+          <summary>Technical details</summary>
+          <pre class="key-details-pre">Old key: <span id="server-key-old"></span>
+New key: <span id="server-key-new"></span></pre>
+        </details>
+        <div class="modal-actions">
+          <button id="server-key-reject-btn" class="btn-primary">Reject &amp; Disconnect</button>
+          <button id="server-key-accept-btn" class="btn-danger">Accept New Key</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Delete Account Confirmation Modal -->
   <div id="delete-modal" class="modal hidden">
     <div class="modal-backdrop"></div>

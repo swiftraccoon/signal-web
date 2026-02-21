@@ -52,4 +52,13 @@ const senderCertLimiter = rateLimit({
   store: createRedisStore('sender-cert'),
 });
 
-export { authLimiter, generalLimiter, accountDeleteLimiter, senderCertLimiter };
+const cspReportLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  message: '',
+  standardHeaders: false,
+  legacyHeaders: false,
+  store: createRedisStore('csp-report'),
+});
+
+export { authLimiter, generalLimiter, accountDeleteLimiter, senderCertLimiter, cspReportLimiter };

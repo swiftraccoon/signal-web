@@ -55,6 +55,14 @@ const FLUSH_DELAY_MS = 100;
 const PBKDF2_ITERATIONS = 600000; // OWASP 2023+ recommendation for SHA-256
 const LEGACY_PBKDF2_ITERATIONS = 100000; // Previous default, kept for backwards compat
 
+// Argon2id constants — OWASP recommended parameters
+const ARGON2_MEMORY = 65536; // 64 MiB in KiB
+const ARGON2_TIME = 3;
+const ARGON2_PARALLELISM = 1;
+const ARGON2_HASH_LEN = 32;
+
+type KdfAlgorithm = 'pbkdf2' | 'argon2id';
+
 // Derive a storage encryption key from the user's password + random salt
 async function deriveStorageKey(password: string, saltBytes: Uint8Array, iterations: number): Promise<CryptoKey> {
   const enc = new TextEncoder();
@@ -68,6 +76,94 @@ async function deriveStorageKey(password: string, saltBytes: Uint8Array, iterati
     false,
     ['encrypt', 'decrypt']
   );
+}
+
+// Argon2 module interface (loaded at runtime from argon2-bundled.min.js)
+interface Argon2Module {
+  ArgonType: { Argon2d: number; Argon2i: number; Argon2id: number };
+  hash: (params: {
+    pass: string;
+    salt: Uint8Array;
+    type: number;
+    mem: number;
+    time: number;
+    parallelism: number;
+    hashLen: number;
+  }) => Promise<{ hash: Uint8Array; hashHex: string; encoded: string }>;
+}
+
+// Dynamically load the self-contained argon2-bundled.min.js (includes WASM inline).
+// The file is copied to client/dist/ by the build process (esbuild.config.js).
+// Returns the global argon2 object or throws if loading fails.
+let argon2LoadPromise: Promise<Argon2Module> | null = null;
+
+function loadArgon2(): Promise<Argon2Module> {
+  if (argon2LoadPromise) return argon2LoadPromise;
+
+  // If already loaded (e.g. via script tag in HTML)
+  const existing = (window as unknown as Record<string, unknown>).argon2 as Argon2Module | undefined;
+  if (existing?.hash && existing?.ArgonType) {
+    argon2LoadPromise = Promise.resolve(existing);
+    return argon2LoadPromise;
+  }
+
+  argon2LoadPromise = new Promise<Argon2Module>((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = '/dist/argon2-bundled.min.js';
+    script.async = true;
+    script.onload = () => {
+      const mod = (window as unknown as Record<string, unknown>).argon2 as Argon2Module | undefined;
+      if (mod?.hash && mod?.ArgonType) {
+        resolve(mod);
+      } else {
+        reject(new Error('Argon2 script loaded but module not found on window.argon2'));
+      }
+    };
+    script.onerror = () => {
+      argon2LoadPromise = null; // Allow retry
+      reject(new Error('Failed to load argon2-bundled.min.js'));
+    };
+    document.head.appendChild(script);
+  });
+
+  return argon2LoadPromise;
+}
+
+// Derive a storage encryption key using Argon2id (WASM-based)
+// If WASM is unavailable, this throws and the caller falls back to PBKDF2
+async function deriveStorageKeyArgon2(password: string, saltBytes: Uint8Array): Promise<CryptoKey> {
+  const argon2 = await loadArgon2();
+
+  const result = await argon2.hash({
+    pass: password,
+    salt: saltBytes,
+    type: argon2.ArgonType.Argon2id,
+    mem: ARGON2_MEMORY,
+    time: ARGON2_TIME,
+    parallelism: ARGON2_PARALLELISM,
+    hashLen: ARGON2_HASH_LEN,
+  });
+  return crypto.subtle.importKey(
+    'raw',
+    result.hash.buffer as ArrayBuffer,
+    { name: 'AES-GCM' },
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+
+// Cached result of Argon2id WASM availability check
+let argon2Available: boolean | null = null;
+
+async function isArgon2Available(): Promise<boolean> {
+  if (argon2Available !== null) return argon2Available;
+  try {
+    await deriveStorageKeyArgon2('test', new Uint8Array(32));
+    argon2Available = true;
+  } catch {
+    argon2Available = false;
+  }
+  return argon2Available;
 }
 
 // Read a value from the unencrypted CRYPTO_PARAMS store
@@ -90,34 +186,41 @@ async function writeCryptoParam(db: IDBDatabase, key: string, value: unknown): P
   });
 }
 
-// Get or create salt and iteration count (with backwards-compat for existing users)
-async function getOrCreateCryptoParams(username: string): Promise<{ salt: Uint8Array; iterations: number }> {
+// Get or create salt, iteration count, and KDF algorithm (with backwards-compat for existing users)
+async function getOrCreateCryptoParams(username: string): Promise<{ salt: Uint8Array; iterations: number; kdf: KdfAlgorithm }> {
   const db = await open();
   const saltKey = `salt:${username}`;
   const iterKey = `iterations:${username}`;
+  const kdfKey = `kdf:${username}`;
 
-  const [existingSalt, existingIter] = await Promise.all([
+  const [existingSalt, existingIter, existingKdf] = await Promise.all([
     readCryptoParam(db, saltKey) as Promise<string | undefined>,
     readCryptoParam(db, iterKey) as Promise<number | undefined>,
+    readCryptoParam(db, kdfKey) as Promise<KdfAlgorithm | undefined>,
   ]);
 
   if (existingSalt) {
     const salt = Uint8Array.from(atob(existingSalt), c => c.charCodeAt(0));
     // Existing users without a stored iteration count used the legacy default
     const iterations = existingIter || LEGACY_PBKDF2_ITERATIONS;
-    // Persist iteration count if it wasn't stored yet (migration)
-    if (!existingIter) {
-      await writeCryptoParam(db, iterKey, iterations);
-    }
-    return { salt, iterations };
+    const kdf: KdfAlgorithm = existingKdf || 'pbkdf2';
+    // Persist iteration count / kdf if not stored yet (migration)
+    if (!existingIter) await writeCryptoParam(db, iterKey, iterations);
+    if (!existingKdf) await writeCryptoParam(db, kdfKey, kdf);
+    return { salt, iterations, kdf };
   }
 
-  // New user: generate salt and use strong iteration count
+  // New user: try Argon2id, fall back to PBKDF2
   const salt = crypto.getRandomValues(new Uint8Array(32));
   const iterations = PBKDF2_ITERATIONS;
+  let kdf: KdfAlgorithm = 'pbkdf2';
+  if (await isArgon2Available()) {
+    kdf = 'argon2id';
+  }
   await writeCryptoParam(db, saltKey, uint8ToBase64(salt));
   await writeCryptoParam(db, iterKey, iterations);
-  return { salt, iterations };
+  await writeCryptoParam(db, kdfKey, kdf);
+  return { salt, iterations, kdf };
 }
 
 async function initEncryption(password: string, username: string): Promise<void> {
@@ -127,7 +230,16 @@ async function initEncryption(password: string, username: string): Promise<void>
     dbInstance = null;
   }
   dbUsername = username;
-  const { salt, iterations } = await getOrCreateCryptoParams(username);
+  const { salt, iterations, kdf } = await getOrCreateCryptoParams(username);
+
+  if (kdf === 'argon2id') {
+    try {
+      encryptionKey = await deriveStorageKeyArgon2(password, salt);
+      return;
+    } catch {
+      // WASM unavailable at runtime — fall back to PBKDF2
+    }
+  }
   encryptionKey = await deriveStorageKey(password, salt, iterations);
 }
 
@@ -363,12 +475,13 @@ async function clearAll(): Promise<void> {
   });
 }
 
-// C1: Re-encrypt all stores with a new password (called after password change)
+// C1: Re-encrypt all stores with a new password (called after password change or KDF upgrade)
 // Two-phase approach: Phase 1 reads/re-encrypts in memory, Phase 2 writes to IndexedDB.
 // On Phase 1 failure: no changes made to IndexedDB.
 // On Phase 2 failure: old encryption key is restored so unmodified stores remain readable.
 // Phase 2 uses a single atomic multi-store IndexedDB transaction for all writes.
-async function reEncryptAllStores(oldPassword: string, newPassword: string, username: string): Promise<void> {
+// Optional targetKdf allows upgrading the KDF algorithm during re-encryption.
+async function reEncryptAllStores(oldPassword: string, newPassword: string, username: string, targetKdf?: KdfAlgorithm): Promise<void> {
   if (reencryptionInProgress) {
     throw new Error('Re-encryption already in progress');
   }
@@ -385,8 +498,18 @@ async function reEncryptAllStores(oldPassword: string, newPassword: string, user
     // No IndexedDB writes happen in this phase. If anything fails, the DB is unchanged.
 
     // 1a. Derive old key and decrypt all stores
-    const { salt: oldSalt, iterations: oldIter } = await getOrCreateCryptoParams(username);
-    const oldKey = await deriveStorageKey(oldPassword, oldSalt, oldIter);
+    const { salt: oldSalt, iterations: oldIter, kdf: oldKdf } = await getOrCreateCryptoParams(username);
+    let oldKey: CryptoKey;
+    if (oldKdf === 'argon2id') {
+      try {
+        oldKey = await deriveStorageKeyArgon2(oldPassword, oldSalt);
+      } catch {
+        // Argon2 WASM unavailable — fall back to PBKDF2 for decryption
+        oldKey = await deriveStorageKey(oldPassword, oldSalt, oldIter);
+      }
+    } else {
+      oldKey = await deriveStorageKey(oldPassword, oldSalt, oldIter);
+    }
     encryptionKey = oldKey;
 
     const decryptedData = new Map<string, { keys: IDBValidKey[]; values: unknown[] }>();
@@ -400,7 +523,17 @@ async function reEncryptAllStores(oldPassword: string, newPassword: string, user
     const newIter = PBKDF2_ITERATIONS;
     const saltKey = `salt:${username}`;
     const iterKey = `iterations:${username}`;
-    const newKey = await deriveStorageKey(newPassword, newSalt, newIter);
+    const kdfKey = `kdf:${username}`;
+
+    // Determine which KDF to use for the new key
+    const newKdf: KdfAlgorithm = targetKdf || oldKdf;
+
+    let newKey: CryptoKey;
+    if (newKdf === 'argon2id') {
+      newKey = await deriveStorageKeyArgon2(newPassword, newSalt);
+    } else {
+      newKey = await deriveStorageKey(newPassword, newSalt, newIter);
+    }
     encryptionKey = newKey;
 
     const reEncryptedData = new Map<string, { keys: IDBValidKey[]; encryptedValues: EncryptedValue[] }>();
@@ -428,10 +561,11 @@ async function reEncryptAllStores(oldPassword: string, newPassword: string, user
           store.put(data.encryptedValues[i], data.keys[i]);
         }
       }
-      // Also update salt and iteration count atomically
+      // Also update salt, iteration count, and KDF type atomically
       const cryptoStore = tx.objectStore(STORES.CRYPTO_PARAMS);
       cryptoStore.put(uint8ToBase64(newSalt), saltKey);
       cryptoStore.put(newIter, iterKey);
+      cryptoStore.put(newKdf, kdfKey);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
@@ -458,5 +592,20 @@ async function upgradeIterationsIfNeeded(password: string, username: string): Pr
   }
 }
 
-export { STORES, open, get, put, putDebounced, remove, getAll, clear, clearAll, initEncryption, clearEncryptionKey, reEncryptAllStores, upgradeIterationsIfNeeded };
-export type { StoreName };
+// Upgrade existing users from PBKDF2 to Argon2id (transparent, background migration)
+// Called after login. If Argon2id WASM is unavailable, silently skips.
+async function upgradeToArgon2idIfNeeded(password: string, username: string): Promise<void> {
+  const db = await open();
+  const kdfKey = `kdf:${username}`;
+  const existingKdf = await readCryptoParam(db, kdfKey) as KdfAlgorithm | undefined;
+  if (existingKdf === 'argon2id') return; // Already upgraded
+
+  // Check if Argon2id WASM is available
+  if (!await isArgon2Available()) return; // WASM unavailable — skip migration
+
+  // Re-encrypt all stores with same password but targeting Argon2id for the new key
+  await reEncryptAllStores(password, password, username, 'argon2id');
+}
+
+export { STORES, open, get, put, putDebounced, remove, getAll, clear, clearAll, initEncryption, clearEncryptionKey, reEncryptAllStores, upgradeIterationsIfNeeded, upgradeToArgon2idIfNeeded };
+export type { StoreName, KdfAlgorithm };

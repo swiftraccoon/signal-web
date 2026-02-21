@@ -1,7 +1,9 @@
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import { Request, Response, NextFunction } from 'express';
 import config from '../config';
 import { stmt } from '../db';
+
 import type { JwtTokenPayload, DbUser } from '../../shared/types';
 
 function authenticateToken(req: Request, res: Response, next: NextFunction): void {
@@ -19,6 +21,23 @@ function authenticateToken(req: Request, res: Response, next: NextFunction): voi
       audience: 'signal-web',
       issuer: 'signal-web',
     }) as JwtTokenPayload;
+
+    // Session fingerprinting: reject tokens used from different device/network
+    if (payload.fp) {
+      const ua = req.headers['user-agent'] || '';
+      const ip = req.ip || req.socket.remoteAddress || '';
+      let subnet = ip;
+      if (ip.includes('.')) {
+        subnet = ip.split('.').slice(0, 3).join('.');
+      } else if (ip.includes(':')) {
+        subnet = ip.split(':').slice(0, 3).join(':');
+      }
+      const currentFp = crypto.createHash('sha256').update(`${ua}|${subnet}`).digest('hex').slice(0, 16);
+      if (currentFp !== payload.fp) {
+        res.status(401).json({ error: 'Session fingerprint mismatch' });
+        return;
+      }
+    }
 
     // Check token_version — immediate revocation on password change
     const user = stmt.getUserByUsername.get(payload.username) as DbUser | undefined;

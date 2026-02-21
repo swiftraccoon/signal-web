@@ -4,7 +4,7 @@ import config from '../config';
 import { addConnection, removeConnection } from './connections';
 import { handleMessage } from './handler';
 import { consumeWsTicket } from './tickets';
-import { MAX_WS_MESSAGE_SIZE, WS_MSG_TYPE } from '../../shared/constants';
+import { MAX_WS_MESSAGE_SIZE, WS_MSG_TYPE, SIGNED_PREKEY_MAX_AGE_SEC } from '../../shared/constants';
 import logger from '../logger';
 import { audit } from '../audit';
 import { incr } from '../metrics';
@@ -179,7 +179,7 @@ function setupWebSocket(server: http.Server): WebSocketServer {
     const signedPreKey = stmt.getSignedPreKey.get(user.id) as { uploaded_at?: number } | undefined;
     if (signedPreKey?.uploaded_at) {
       const ageSec = Math.floor(Date.now() / 1000) - signedPreKey.uploaded_at;
-      if (ageSec > 14 * 24 * 3600) { // > 14 days
+      if (ageSec > SIGNED_PREKEY_MAX_AGE_SEC) {
         ws.send(JSON.stringify({
           type: WS_MSG_TYPE.PREKEY_STALE,
           signedPreKeyAge: ageSec,

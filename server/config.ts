@@ -40,7 +40,7 @@ const config: ServerConfig = {
   BCRYPT_ROUNDS: parseInt(process.env.BCRYPT_ROUNDS || '13', 10),
   JWT_EXPIRY: '15m',
   ACCESS_TOKEN_EXPIRY: '15m',
-  REFRESH_TOKEN_EXPIRY_DAYS: 7,
+  REFRESH_TOKEN_EXPIRY_DAYS: 1,
   IS_PRODUCTION: isProduction,
   MAX_FAILED_LOGINS: 10,
   LOCKOUT_DURATION_MIN,
@@ -51,6 +51,7 @@ const config: ServerConfig = {
       ? [] // Must be configured in production
       : [`http://localhost:${parseInt(process.env.PORT ?? '', 10) || 3000}`, `http://127.0.0.1:${parseInt(process.env.PORT ?? '', 10) || 3000}`],
   AUDIT_SECRET: process.env.AUDIT_SECRET || null,
+  MAX_CONCURRENT_SESSIONS: 5,
 };
 
 if (isProduction && !process.env.AUDIT_SECRET) {

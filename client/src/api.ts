@@ -8,7 +8,6 @@ import type {
 // This prevents XSS-based token theft. Users re-authenticate on page
 // reload, which also re-derives the storage encryption key.
 let token: string | null = null;
-let refreshToken: string | null = null;
 let currentUser: ApiUser | null = null;
 
 function setToken(t: string | null): void {
@@ -17,10 +16,6 @@ function setToken(t: string | null): void {
 
 function getToken(): string | null {
   return token;
-}
-
-function setRefreshToken(t: string | null): void {
-  refreshToken = t;
 }
 
 function setCurrentUser(u: ApiUser | null): void {
@@ -34,18 +29,17 @@ function getCurrentUser(): ApiUser | null {
 async function fetchWithRefresh(url: string, options: RequestInit): Promise<Response> {
   let res = await fetch(url, options);
 
-  if (res.status === 401 && refreshToken) {
-    // Attempt token refresh
+  if (res.status === 401 && token) {
+    // Attempt token refresh — cookie sent automatically
     const refreshRes = await fetch('/api/auth/refresh', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshToken }),
+      credentials: 'same-origin',
     });
 
     if (refreshRes.ok) {
-      const data = await refreshRes.json() as { token: string; refreshToken: string };
+      const data = await refreshRes.json() as { token: string };
       token = data.token;
-      refreshToken = data.refreshToken;
 
       // Retry original request with new token
       const newHeaders = new Headers(options.headers);
@@ -65,6 +59,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
   const res = await fetchWithRefresh(path, {
     ...options,
+    credentials: 'same-origin',
     headers: { ...headers, ...(options.headers as Record<string, string> | undefined) },
   });
 
@@ -146,4 +141,4 @@ const api = {
     request<KeyLogEntry[]>(`/api/keys/key-log?after=${after}&limit=${limit}`),
 };
 
-export { api, setToken, getToken, setRefreshToken, setCurrentUser, getCurrentUser };
+export { api, setToken, getToken, setCurrentUser, getCurrentUser };

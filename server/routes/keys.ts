@@ -150,6 +150,11 @@ router.get('/bundle/:userId', authenticateToken, (req: Request, res: Response) =
       }
     }
 
+    // Pre-key exhaustion intrusion signal: log critically low supply
+    if (count < 5) {
+      logger.warn({ remainingPreKeys: count }, 'Pre-key supply critically low');
+    }
+
     res.json(bundle);
   } catch (err) {
     logger.error({ err, userId: req.user!.id }, 'Get bundle error');

@@ -49,13 +49,31 @@ function generateSRI() {
   console.log('Note: client/index.html has been modified in-place. Run "git checkout client/index.html" to restore the template.');
 }
 
+/**
+ * Copy the self-contained Argon2id bundle (WASM inlined as base64) to client/dist/.
+ * This file is loaded dynamically at runtime via a script tag when Argon2id is needed.
+ * If the source file is missing, Argon2id will gracefully fall back to PBKDF2.
+ */
+function copyArgon2Bundle() {
+  const src = path.join(__dirname, 'node_modules', 'argon2-browser', 'dist', 'argon2-bundled.min.js');
+  const dest = path.join(__dirname, 'client', 'dist', 'argon2-bundled.min.js');
+  if (fs.existsSync(src)) {
+    fs.copyFileSync(src, dest);
+    console.log('Copied argon2-bundled.min.js to client/dist/');
+  } else {
+    console.warn('Warning: argon2-bundled.min.js not found — Argon2id will fall back to PBKDF2');
+  }
+}
+
 async function build() {
   if (isWatch) {
+    copyArgon2Bundle();
     const ctx = await esbuild.context(buildOptions);
     await ctx.watch();
     console.log('Watching for changes...');
   } else {
     await esbuild.build(buildOptions);
+    copyArgon2Bundle();
     console.log(`Build complete (${isDev ? 'development' : 'production'}).`);
 
     if (!isDev) {
